@@ -9,47 +9,60 @@
 * посмотреть ошибку
 * Удаление невидимых линий
 */
-float v11, v12, v13,
-      v21, v22, v23,
-      v31, v32, v33, v43,
-      screen_dist = 100, c1 = 220.0, c2 = 180.0, h = 250.0, rho = 1000, theta = 30, phi = 30;
+float screen_dist = 100, c1 = 220.0, c2 = 180.0, h = 250.0, rho = 1000, theta = 30, phi = 30;
 
 /* Array[][] Matrix*/
-float matrix[3][3] = {0};
-/* Struct Matrix */
-struct {
-    float
-    v11, v12, v13, v14,
-    v21, v22, v23, v24,
-    v31, v32, v33, v34,
-    v41, v42, v43, v44;
-} matrix_s;
+float** matrix;
 FILE *fp;
+
 void opengraph();
 void coeff(float rho, float theta, float phi);
 void mv(float x, float y, float z);
 void dw(float x, float y, float z);
-void perspective(float x, float y, float z, float *pX, float *pY);
+void perspective(float *cords, float *pX, float *pY);
 void draw_from_file(char *filename);
 int check(char ch);
 void update(char *filename);
+void mx_mult(float *mx1, float **mx2, float *result, int a, int b); 
+void checkp();
+/* Пока что для массивов 1*i j*i*/
+
+void checkp()
+{
+    static int count = 1;
+    printf("Checkpoint # %d", count);
+    ++count;
+}
+void mx_mult(float *mx1, float **mx2, float *result, int a, int b)
+{
+    int i, j;
+    float sum;;
+    for(i = 0; i <= b - 1; ++i) {
+        for (j = 0, sum = 0; j <= a - 1; ++j) {
+            sum += mx1[j] * mx2[i][j];
+        }
+        result[i] = sum;
+    }
+}
 
 int main(int argc, char *argv[])
 {
+    checkp();
     printf("start? huh \n");
-    char c = getchar();
-
+    //char c = getchar();
+    checkp();
     if (argc != 2) {
 	printf("Invalid output! \n ./cube <filename> \n");
 	return 0;
     }
-
-    opengraph();
+    checkp();
+    int gd = DETECT, gm;
+    initgraph(&gd, &gm, NULL);
 
     coeff(rho, theta, phi);
 
     draw_from_file(argv[1]);
-
+    checkp();
     while (1 == 1) {
         if ( check('w') )
 	    for (; !kbhit(); phi -= 3.0)
@@ -89,40 +102,35 @@ void coeff(float rho, float theta, float phi)
     costh = cos(th); sinth = sin(th);
     cosph = cos(ph); sinph = sin(ph);
 
-    v11 = -sinth; v12 = -cosph * costh; v13 = -sinph * costh;
-    v21 = costh;  v22 = -cosph * sinth; v23 = -sinph * sinth;
-    v31 = 0;      v32 = sinph;          v33 = -cosph;        v43 = rho;
-
-    matrix[0][0] = -sinth; matrix[0][1] = -cosph * costh; matrix[0][2] = -sinph * costh;
-    matrix[1][0] = costh;  matrix[1][1] = -cosph * sinth; matrix[1][2] = -sinph * sinth;
-    matrix[2][0] = 0;      matrix[2][1] = sinph;          matrix[2][2] = -cosph;
-                                                          matrix[3][2] = rho;            matrix[3][3] = 1.0;
+    matrix[0][0] = -sinth; matrix[0][1] = -cosph * costh; matrix[0][2] = -sinph * costh; matrix[0][3] = 0.0;
+    matrix[1][0] = costh;  matrix[1][1] = -cosph * sinth; matrix[1][2] = -sinph * sinth; matrix[1][3] = 0.0;
+    matrix[2][0] = 0;      matrix[2][1] = sinph;          matrix[2][2] = -cosph;         matrix[2][3] = 0.0;
+    matrix[3][0] = 0;      matrix[3][1] = 0;           matrix[3][2] = 0; matrix[3][2] = rho;            matrix[3][3] = 1.0;
  }
 
 
 void mv(float x, float y, float z)
 {
     float X, Y;
-    perspective(x,y,z, &X, &Y);
+    float cords[] = {x, y, z, 1.0};
+    perspective(cords, &X, &Y);
     moveto((int)X,(int)Y);
 }
 
 void dw(float x, float y, float z)
 {
     float X, Y;
-    perspective(x,y,z, &X,  &Y);
+    float cords[] = {x, y, z, 1.0};
+    perspective(cords, &X,  &Y);
     lineto((int)X, (int)Y);
 }
 
-void perspective(float x, float y, float z, float *pX, float *pY)
+void perspective(float *cords, float *pX, float *pY)
 {
-    float xe, ye, ze;
-    xe = v11 * x + v21 * y + v31 * z;;
-    ye = v12 * x + v22 * y + v32 * z;
-    ze = v13 * x + v23 * y + v33 * z + v43;
-
-    *pX = screen_dist * xe / ze + c1;
-    *pY = screen_dist * ye / ze + c2;
+    float new_cords[] = {0,0,0,0};
+    mx_mult(cords, matrix, new_cords, 4, 4);
+    *pX = screen_dist * new_cords[0] / new_cords[2] + c1;
+    *pY = screen_dist * new_cords[1] / new_cords[2] + c2;
 }
 
 
@@ -153,7 +161,7 @@ void draw_from_file(char *filename)
     float x, y, z;
     int i;
 
-    while ( fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0) {
+    while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0) {
 	if (i)
             dw(x,y,z);
         else mv(x,y,z);

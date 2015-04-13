@@ -1,2 +1,2 @@
 all:
-	gcc main.c -lm -lgraph -o 3Draw
+	gcc main.c -g -lm -lgraph -o 3Draw
