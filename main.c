@@ -14,10 +14,18 @@ float v11, v12, v13,
       v31, v32, v33, v43,
       screen_dist = 100, c1 = 220.0, c2 = 180.0, h = 250.0, rho = 1000, theta = 30, phi = 30;
 
-int gd = DETECT, gm;
-
+/* Array[][] Matrix*/
+float matrix[3][3] = {0};
+/* Struct Matrix */
+struct {
+    float
+    v11, v12, v13, v14,
+    v21, v22, v23, v24,
+    v31, v32, v33, v34,
+    v41, v42, v43, v44;
+} matrix_s;
 FILE *fp;
-
+void opengraph();
 void coeff(float rho, float theta, float phi);
 void mv(float x, float y, float z);
 void dw(float x, float y, float z);
@@ -36,7 +44,7 @@ int main(int argc, char *argv[])
 	return 0;
     }
 
-    initgraph(&gd, &gm, NULL);
+    opengraph();
 
     coeff(rho, theta, phi);
 
@@ -66,6 +74,11 @@ int main(int argc, char *argv[])
     }
 }
 
+void opengraph()
+{
+    int gd = DETECT, gm;
+    initgraph(&gd, &gm, NULL);
+}
 
 void coeff(float rho, float theta, float phi)
 {
@@ -79,7 +92,12 @@ void coeff(float rho, float theta, float phi)
     v11 = -sinth; v12 = -cosph * costh; v13 = -sinph * costh;
     v21 = costh;  v22 = -cosph * sinth; v23 = -sinph * sinth;
     v31 = 0;      v32 = sinph;          v33 = -cosph;        v43 = rho;
-}
+
+    matrix[0][0] = -sinth; matrix[0][1] = -cosph * costh; matrix[0][2] = -sinph * costh;
+    matrix[1][0] = costh;  matrix[1][1] = -cosph * sinth; matrix[1][2] = -sinph * sinth;
+    matrix[2][0] = 0;      matrix[2][1] = sinph;          matrix[2][2] = -cosph;
+                                                          matrix[3][2] = rho;            matrix[3][3] = 1.0;
+ }
 
 
 void mv(float x, float y, float z)
@@ -99,7 +117,7 @@ void dw(float x, float y, float z)
 void perspective(float x, float y, float z, float *pX, float *pY)
 {
     float xe, ye, ze;
-    xe = v11 * x + v21 * y;
+    xe = v11 * x + v21 * y + v31 * z;;
     ye = v12 * x + v22 * y + v32 * z;
     ze = v13 * x + v23 * y + v33 * z + v43;
 
