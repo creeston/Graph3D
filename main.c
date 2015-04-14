@@ -34,7 +34,7 @@ void mx_mult(float *mx1, float **mx2, float *result, int a, int b);
 void checkp();
 void copycord(char *filename, int *m);
 void draw_from_object(int n);
-void merge(char *filename);
+void merge(char *filename, int *n);
 void checkp()
 {
     static int count = 1;
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
     }
 
     printf("start? huh \n");
-    if (argc != 2) {
+    if (argc < 2) {
 	printf("Invalid output! \n ./cube <filename> \n");
 	return 0;
     }
@@ -94,6 +94,8 @@ int main(int argc, char *argv[])
         if (check('e') )
             for (; !kbhit(); screen_dist += 4.0)
                 update(num);
+	if (check('m') )
+	    merge(argv[2], &num);
         if (check('x') )
             goto exit;
     }
@@ -187,7 +189,7 @@ void copycord(char *filename, int *m)
     while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0)
 	(*m)++;
     fclose(fp);
-
+    free(obj); //if memory was already allocated
     obj = malloc((*m) * sizeof(struct vertex *));
     for (j = 0; j < (*m); ++j) {
 	obj[j] = malloc(sizeof(struct vertex));
@@ -215,3 +217,32 @@ void draw_from_object(int n)
 
 }
 
+void merge(char *filename, int *n)
+{
+    int i, j, n1;
+    struct vertex **obj1;
+
+    obj1 = malloc(*n * sizeof(struct vertex *));
+    for (i = 0; i < *n; ++i)
+	obj1[i] = malloc(sizeof(struct vertex));
+
+    for (i = 0; i < *n; ++i)
+	*obj1[i] = *obj[i];
+
+
+    copycord(filename, &n1);
+
+
+    obj1 = realloc(obj1, n1 * sizeof(struct vertex *));
+
+    for (i = *n; i < *n + n1; ++i) {
+        obj1[i] = malloc(sizeof(struct vertex));
+    }
+
+    for (i = *n, j = 0; i < *n + n1; ++i, ++j)
+	*obj1[i] = *obj[j];
+
+    free(obj);
+    obj = obj1;
+    *n += n1;
+}
