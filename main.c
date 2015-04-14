@@ -13,6 +13,14 @@ float screen_dist = 100, c1 = 220.0, c2 = 180.0, h = 250.0, rho = 1000, theta = 
 float **matrix;
 
 FILE *fp;
+struct vertex {
+    float x;
+    float y;
+    float z;
+    int i;
+};
+
+struct vertex **obj;
 
 void opengraph();
 void coeff(float rho, float theta, float phi);
@@ -21,24 +29,17 @@ void dw(float x, float y, float z);
 void perspective(float *cords, float *pX, float *pY);
 void draw_from_file(char *filename);
 int check(char ch);
-void update(char *filename);
+void update(int n);
 void mx_mult(float *mx1, float **mx2, float *result, int a, int b);
 void checkp();
-void copycord(object obj, char *filename);
-
-struct vertex {
-    float x;
-    float y;
-    float z;
-    int i;
-};
-
-typedef struct vertex *object[];
-
+void copycord(char *filename, int *m);
+void draw_from_object(int n);
+void merge(char *filename);
 void checkp()
 {
     static int count = 1;
     printf("Checkpoint # %d", count);
+    getchar();
     ++count;
 }
 void mx_mult(float *mx1, float **mx2, float *result, int a, int b)
@@ -55,12 +56,12 @@ void mx_mult(float *mx1, float **mx2, float *result, int a, int b)
 
 int main(int argc, char *argv[])
 {
-    int i;
+    int i, num;
+
     matrix = malloc(4 * sizeof(float *));
     for (i = 0; i < 4; ++i) {
 	matrix[i] = malloc(4 * sizeof(float));
     }
-
 
     printf("start? huh \n");
     if (argc != 2) {
@@ -69,31 +70,44 @@ int main(int argc, char *argv[])
     }
 
     coeff(rho, theta, phi);
+    copycord(argv[1], &num);
 
-    draw_from_file(argv[1]);
-    checkp();
+    opengraph();
+    draw_from_object(num);
+
     while (1 == 1) {
         if ( check('w') )
 	    for (; !kbhit(); phi -= 3.0)
-                update(argv[1]);
+                update(num);
         if (check('s') )
 	    for (; !kbhit(); phi += 3.0)
-	        update(argv[1]);
+	        update(num);
         if (check('a') )
             for (; !kbhit(); theta += 3.0)
-                update(argv[1]);
+                update(num);
         if (check('d') )
             for (; !kbhit(); theta -= 3.0)
-                update(argv[1]);
+                update(num);
         if (check('q') )
             for (; !kbhit(); screen_dist -= 4.0)
-                update(argv[1]);
+                update(num);
         if (check('e') )
             for (; !kbhit(); screen_dist += 4.0)
-                update(argv[1]);
+                update(num);
         if (check('x') )
-            closegraph();
+            goto exit;
     }
+    exit:
+    closegraph();
+    /*Free memory */
+    for (i = 0; i < num; ++i) {
+	free(obj[i]);
+    }
+    free(obj);
+    for (i = 0; i < 4; ++i) {
+	free(matrix[i]);
+    }
+    free(matrix);
 }
 
 void opengraph()
@@ -114,7 +128,7 @@ void coeff(float rho, float theta, float phi)
     matrix[0][0] = -sinth; matrix[0][1] = -cosph * costh; matrix[0][2] = -sinph * costh; matrix[0][3] = 0.0;
     matrix[1][0] = costh;  matrix[1][1] = -cosph * sinth; matrix[1][2] = -sinph * sinth; matrix[1][3] = 0.0;
     matrix[2][0] = 0;      matrix[2][1] = sinph;          matrix[2][2] = -cosph;         matrix[2][3] = 0.0;
-    matrix[3][0] = 0;      matrix[3][1] = 0;           matrix[3][2] = 0; matrix[3][2] = rho;            matrix[3][3] = 1.0;
+    matrix[3][0] = 0;      matrix[3][1] = 0;              matrix[3][2] = rho;            matrix[3][3] = 1.0;
  }
 
 
@@ -136,7 +150,7 @@ void dw(float x, float y, float z)
 
 void perspective(float *cords, float *pX, float *pY)
 {
-    float new_cords[] = {0,0,0,0};
+    float new_cords[4];
     mx_mult(cords, matrix, new_cords, 4, 4);
     *pX = screen_dist * new_cords[0] / new_cords[2] + c1;
     *pY = screen_dist * new_cords[1] / new_cords[2] + c2;
@@ -151,62 +165,53 @@ int check(char ch)
     else return 0;
 }
 
-void update(char *filename)
+void update(int n)
 {
     cleardevice();
     coeff(rho, theta, phi);
-    draw_from_file(filename);
+    draw_from_object(n);
     delay(1);
 }
 
-void draw_from_file(char *filename)
-{
-    fp = fopen(filename, "r");
-    if (fp == NULL && filename != NULL) {
-	printf("This file doesn't exist");
-	exit(0);
-    }
-
-    float x, y, z;
-    int i;
-
-    while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0) {
-	if (i)
-            dw(x,y,z);
-        else mv(x,y,z);
-    }
-    fclose(fp);
-}
-void copycord(object obj, char *filename)
+void copycord(char *filename, int *m)
 {
     fp = fopen(filename, "r");
     if (fp == NULL && filename != NULL) {
         printf("This file doesn't exist");
         exit(0);
     }
-
     float x, y, z;
-    int i,j = 0, m = 0;
+    int i,j = 0;
+    (*m) = 0;
+
     while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0)
-	++m;
-    obj = malloc(m * sizeof(* object));
-    for (j = 0; j < m; ++j) {
-	obj[j] = malloc(sizeof(object));
+	(*m)++;
+    fclose(fp);
+
+    obj = malloc((*m) * sizeof(struct vertex *));
+    for (j = 0; j < (*m); ++j) {
+	obj[j] = malloc(sizeof(struct vertex));
     }
-    j = 0;
-    while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0) {
-        *obj[j].x = x;
-	*obj[j].y = y;
-	*obj[j].z = z;
-	*obj[j].i = i;
-	++j;
+
+    fp = fopen(filename, "r");
+
+    for (j = 0; fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0; ++j) {
+        obj[j]->x = x;
+	obj[j]->y = y;
+	obj[j]->z = z;
+	obj[j]->i = i;
     }
     fclose(fp);
 }
 
-void draw_from_object(object obj)
+void draw_from_object(int n)
 {
-    while()
+    int j;
+    for (j = 0; j < n; ++j) {
+        if (obj[j]->i == 1)
+            dw(obj[j]->x, obj[j]->y, obj[j]->z);
+        else mv(obj[j]->x, obj[j]->y, obj[j]->z);
+    }
 
 }
 
