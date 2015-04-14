@@ -5,14 +5,13 @@
 //#include<X11/Xlib.h>
 /*
 * TODO:
-* Матрицы в структуру и передавать в функцию
 * посмотреть ошибку
 * Удаление невидимых линий
 */
 float screen_dist = 100, c1 = 220.0, c2 = 180.0, h = 250.0, rho = 1000, theta = 30, phi = 30;
 
-/* Array[][] Matrix*/
-float** matrix;
+float **matrix;
+
 FILE *fp;
 
 void opengraph();
@@ -23,9 +22,18 @@ void perspective(float *cords, float *pX, float *pY);
 void draw_from_file(char *filename);
 int check(char ch);
 void update(char *filename);
-void mx_mult(float *mx1, float **mx2, float *result, int a, int b); 
+void mx_mult(float *mx1, float **mx2, float *result, int a, int b);
 void checkp();
-/* Пока что для массивов 1*i j*i*/
+void copycord(object obj, char *filename);
+
+struct vertex {
+    float x;
+    float y;
+    float z;
+    int i;
+};
+
+typedef struct vertex *object[];
 
 void checkp()
 {
@@ -39,7 +47,7 @@ void mx_mult(float *mx1, float **mx2, float *result, int a, int b)
     float sum;;
     for(i = 0; i <= b - 1; ++i) {
         for (j = 0, sum = 0; j <= a - 1; ++j) {
-            sum += mx1[j] * mx2[i][j];
+            sum += mx1[j] * mx2[j][i];
         }
         result[i] = sum;
     }
@@ -47,17 +55,18 @@ void mx_mult(float *mx1, float **mx2, float *result, int a, int b)
 
 int main(int argc, char *argv[])
 {
-    checkp();
+    int i;
+    matrix = malloc(4 * sizeof(float *));
+    for (i = 0; i < 4; ++i) {
+	matrix[i] = malloc(4 * sizeof(float));
+    }
+
+
     printf("start? huh \n");
-    //char c = getchar();
-    checkp();
     if (argc != 2) {
 	printf("Invalid output! \n ./cube <filename> \n");
 	return 0;
     }
-    checkp();
-    int gd = DETECT, gm;
-    initgraph(&gd, &gm, NULL);
 
     coeff(rho, theta, phi);
 
@@ -167,5 +176,37 @@ void draw_from_file(char *filename)
         else mv(x,y,z);
     }
     fclose(fp);
+}
+void copycord(object obj, char *filename)
+{
+    fp = fopen(filename, "r");
+    if (fp == NULL && filename != NULL) {
+        printf("This file doesn't exist");
+        exit(0);
+    }
+
+    float x, y, z;
+    int i,j = 0, m = 0;
+    while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0)
+	++m;
+    obj = malloc(m * sizeof(* object));
+    for (j = 0; j < m; ++j) {
+	obj[j] = malloc(sizeof(object));
+    }
+    j = 0;
+    while (fscanf(fp, "%f %f %f %d", &x,&y,&z,&i) > 0) {
+        *obj[j].x = x;
+	*obj[j].y = y;
+	*obj[j].z = z;
+	*obj[j].i = i;
+	++j;
+    }
+    fclose(fp);
+}
+
+void draw_from_object(object obj)
+{
+    while()
+
 }
 
