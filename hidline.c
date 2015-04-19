@@ -1,9 +1,16 @@
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
 
 #define NVERTEX 50
 #define NTRIANGLE 50
-
+/*
+*
+*   TODO
+* 1. make it works
+* 2. link with main.c
+* 3. make it rational
+*/
 int ntr = 0;
 double v11, v12, v13, v21, v22, v23, v32, v33, v43,
 	eps = 1e-5, meps = -1e-5, oneminus = 1 - 1.e-5, oneplus = 1 + 1.e-5;
@@ -18,42 +25,56 @@ struct {
     double x,y,z;
 } VERTEX[NVERTEX];
 
-int struct {
+struct {
     int A,B,C;
     double a,b,c,h;
 } TRIANGLE[NTRIANGLE];
 
+int error(char *str)
+{
+    printf("%s \n", str);
+    exit(1);
+}
 
+void check()
+{
+    static int i = 1;
+    printf("input to continue");
+    char c = getchar();
+    printf("Checkpoint # %d", i);
+    i++;
+}
 int main(int argc, char *argv[])
 {
     int A,B,C,P,Q;
     double xO, yO, zO, rho, theta, phi, x, y, z, xA, yA, zA, xB, yB, zB, xC, yC, zC, a, b, c, h, r;
     FILE *fpin;
-    int ch;
+    int ch, i;
 
     if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL) {
-        printf("Incorrect input file \n");
-        return 0;
+        error("Incorrect input file \n");
     }
 
     fscanf(fpin, "%lf %lf %lf", &xO,&yO,&zO); skipf(fpin);
     fscanf(fpin, "%lf %lf %lf", &rho,&theta,&phi);
     coeff(rho, theta, phi);
 
-    while(skipf(fpin), ch = getc(fpin), ch != '#' && ch != EOF) {
+    check(); //1
+
+    while(ch = getc(fpin), ch != '#' && ch != EOF) {
         ungetc(ch, fpin);
         fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
         if (i < 0 || i > NVERTEX) {
-            printf("Invalid vertex number \n");
-            return 0;
+            error("Invalid vertex number \n");
         }
         viewing(x - xO, y - yO, z - zO, &VERTEX[i].x, &VERTEX[i].y, &VERTEX[i].z);
-        if (VERTEX[i].z < eps) {
-            printf("error? \n");
-        }
-    }
+        if (VERTEX[i].z < eps)
+            error("deifferent sides of viepoint \n");
 
-    while(skipf(fpin), ch = getc(fpin), ch != '#' && ch != EOF) {
+    }
+    check(); //2
+
+    while(ch = getc(fpin), ch != '#') {
         ungetc(ch, fpin);
         fscanf(fpin, "%d %d %d", &A,&B,&C);
         xA = VERTEX[A].x; yA = VERTEX[A].y; zA = VERTEX[A].z;
@@ -67,8 +88,11 @@ int main(int argc, char *argv[])
             xB * (yA * zC - yC * zA) +
             xC * (yA * zB - yB * zA);
         if (h > 0) {
-            if (ntr = NTRIANGLE)
-                printf("error \n");
+            if (ntr == NTRIANGLE) {
+		printf("%d \n", ntr);
+                error("Too much triangles");
+	    }
+
             r = sqrt(a * a + b * b + c * c);
             a /= r; b /= r; c /= r;
             TRIANGLE[ntr].A = A;
@@ -79,15 +103,16 @@ int main(int argc, char *argv[])
             TRIANGLE[ntr].c = c;
             TRIANGLE[ntr++].h = h;
         }
-
     }
+    check(); //3
 
-
-    fpout = fopen("a.scratch", "wb");
-    while(skipf(fpin), fscanf(fpin, "%d %d", &P, &Q) > 0) {
+    fpout = fopen("a.scratch", "w");
+    if (fpout == NULL)
+	error("File cannot be opened");
+    while(fscanf(fpin, "%d %d", &P, &Q) > 0) {
         linesegment(VERTEX[P].x, VERTEX[P].y, VERTEX[P].z, VERTEX[Q].x, VERTEX[Q].y, VERTEX[Q].z, 0);
     }
-
+    check(); //4
     fclose(fpout);
 }
 
@@ -117,7 +142,7 @@ viewing(double x, double y, double z, double *pxe, double *pye, double *pze)
 {
     *pxe = v11 * x + v21 * y;
     *pye = v12 * x + v22 * y + v32 * z;
-    *pze = v31 * x + v32 * y + v33 * z + v43;
+    *pze = v13 * x + v23 * y + v33 * z + v43;
 }
 
 linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, int j0)
@@ -127,7 +152,7 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
 	   dA, dB, dC, MIN, MAX, lab, mu,
 	   xmin, ymin, zmin, xmax, ymax, zmax,
 	   C1, C2, C3, K1, K2, K3, denom1, denom2,
-	   Cpos, Ppos, Qpos, aux, eps1;
+	   Cpos, Ppos, Qpos, aux, eps1, a, b, c, h, hP, hQ, r1, r2, r3;
 
     while(j < ntr) {
         a = TRIANGLE[j].a; b = TRIANGLE[j].b;  c = TRIANGLE[j].c;
@@ -186,8 +211,8 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
             lab = fabs(denom1) <= eps ? 1.e7 : -Ppos / denom1;
 
             if (mu >= meps && mu <= oneplus && lab >= meps && lab <= oneplus) {
-                if (lab < MIN) MIN = tab;
-                if (lab > MAX) MAX = tab;
+                if (lab < MIN) MIN = lab;
+                if (lab > MAX) MAX = lab;
             }
 
             aux = xA; xA = xB; xB = xC; xC = aux;
@@ -233,11 +258,16 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
         break;
     }
 
-    if (worktodo) {
+    /*if (worktodo) {
         s.X = xP / zP; s.Y = yP / zP; s.code = 0;
         fwrite(&s, sizeof s, 1, fpout);
         s.X = xQ / zQ; s.Y = yQ / zQ; s.code = 1;
         fwrite(&s, sizeof s, 1, fpout);
+    }*/
+
+    if (worktodo) {
+        fprintf(fpout, "%f %f %d\n", xP / zP * 400, yP / zP * 400, 0);
+	fprintf(fpout, "%f %f %d\n", xQ / zQ * 400, yQ / zQ * 400, 1);
     }
 }
 
