@@ -7,13 +7,14 @@
 /*
 *
 *   TODO
-* 1. make it works
+* 1. make it works as it should
 * 2. link with main.c
 * 3. make it rational
+* 4. i changed all eps1 to eps (!)
 */
 int ntr = 0;
 double v11, v12, v13, v21, v22, v23, v32, v33, v43,
-	eps = 1e-5, meps = -1e-5, oneminus = 1 - 1.e-5, oneplus = 1 + 1.e-5;
+	eps = 1e-5, meps = -1e-5, oneminus = 1 - 1e-5, oneplus = 1 + 1e-5;
 
 FILE *fpout;
 struct {
@@ -61,7 +62,7 @@ int main(int argc, char *argv[])
 
     check(); //1
 
-    while(ch = getc(fpin), ch != '#' && ch != EOF) {
+    while(skipf(fpin), ch = getc(fpin), ch != '#' && ch != EOF) {
         ungetc(ch, fpin);
         fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
         if (i < 0 || i > NVERTEX) {
@@ -74,7 +75,7 @@ int main(int argc, char *argv[])
     }
     check(); //2
 
-    while(ch = getc(fpin), ch != '#') {
+    while(skipf(fpin), ch = getc(fpin), ch != '#') {
         ungetc(ch, fpin);
         fscanf(fpin, "%d %d %d", &A,&B,&C);
         xA = VERTEX[A].x; yA = VERTEX[A].y; zA = VERTEX[A].z;
@@ -94,7 +95,7 @@ int main(int argc, char *argv[])
 	    }
 
             r = sqrt(a * a + b * b + c * c);
-            a /= r; b /= r; c /= r;
+            a /= r; b /= r; c /= r; h /= r;
             TRIANGLE[ntr].A = A;
             TRIANGLE[ntr].B = B;
             TRIANGLE[ntr].C = C;
@@ -109,7 +110,7 @@ int main(int argc, char *argv[])
     fpout = fopen("a.scratch", "w");
     if (fpout == NULL)
 	error("File cannot be opened");
-    while(fscanf(fpin, "%d %d", &P, &Q) > 0) {
+    while(skipf(fpin), fscanf(fpin, "%d %d", &P, &Q) > 0) {
         linesegment(VERTEX[P].x, VERTEX[P].y, VERTEX[P].z, VERTEX[Q].x, VERTEX[Q].y, VERTEX[Q].z, 0);
     }
     check(); //4
@@ -181,8 +182,8 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
         dC = K1 * xC + K2 * yC + K3 * zC;
 
         eA = dA > eps ? 1 : dA < meps ? -1 : 0;
-        eA = dB > eps ? 1 : dB < meps ? -1 : 0;
-        eA = dC > eps ? 1 : dC < meps ? -1 : 0;
+        eB = dB > eps ? 1 : dB < meps ? -1 : 0;
+        eC = dC > eps ? 1 : dC < meps ? -1 : 0;
 
         sum = eA + eB + eC;
         if (abs(sum) >= 2) {
@@ -194,7 +195,7 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
 
         Poutside = Qoutside = 0; MIN = 1; MAX = 0;
         for(i = 0; i < 3; ++i) {
-            C1 = yA * zB - yB * zA; C2 = zA * zB - zB * xA; C3 = xA * yB - xB * yA;
+            C1 = yA * zB - yB * zA; C2 = zA * xB - zB * xA; C3 = xA * yB - xB * yA;
             Cpos = C1 * xC + C2 * yC + C3 * zC;
             Ppos = C1 * xP + C2 * yP + C3 * zP;
             Qpos = C1 * xQ + C2 * yQ + C3 * zQ;
@@ -208,8 +209,11 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
                        outside = Pbeyond && Qpos >= meps || Qbeyond && Ppos >= meps;
                    } else outside = 1;
             if (outside) break;
-            lab = fabs(denom1) <= eps ? 1.e7 : -Ppos / denom1;
+            lab = fabs(denom1) <= eps ? 1e7 : -Ppos / denom1;
 
+	    Poutside |= Pbeyond; Qoutside |= Qbeyond;
+	    denom2 = dB - dA;
+	    mu = fabs(denom2) <= eps ? 1e7 : -dA / denom2;
             if (mu >= meps && mu <= oneplus && lab >= meps && lab <= oneplus) {
                 if (lab < MIN) MIN = lab;
                 if (lab > MAX) MAX = lab;
@@ -266,8 +270,8 @@ linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, in
     }*/
 
     if (worktodo) {
-        fprintf(fpout, "%f %f %d\n", xP / zP * 400, yP / zP * 400, 0);
-	fprintf(fpout, "%f %f %d\n", xQ / zQ * 400, yQ / zQ * 400, 1);
+        fprintf(fpout, "%f %f %d\n", xP / zP * 4000, yP / zP * 4000, 0);
+	fprintf(fpout, "%f %f %d\n", xQ / zQ * 4000, yQ / zQ * 4000, 1);
     }
 }
 
