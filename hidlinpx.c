@@ -1,39 +1,29 @@
-#include <stdio.h>
-#include <math.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <graphics.h>
+#include<stdio.h>
+#include<math.h>
+#include<ctype.h>
+#include<graphics.h>
+#include "test_header.h"
+#include<X11/Xlib.h>
+#include<time.h>
+#include<SDL/SDL.h>
 
-#define max2(x,y) ((x) > (y) ? (x) : (y))
-#define min2(x,y) ((x) < (y) ? (x) : (y))
-#define max3(x,y,z) ((x) > (y) ? max2(x,z) : max2(y,z))
-#define min3(x,y,z) ((x) < (y) ? min2(x,z) : min2(y,z))
-#define xwhole(x) ((int)(((x) - Xmin) / deltaX))
-#define ywhole(y) ((int)(((y) - Ymin) / deltaY))
-#define xreal(i) (Xmin + ((i)) * deltaX)
-
-#define M -1000000.0
-#define NVERTEX 300
-#define NTRIANGLE 200
-#define NSCREEN 15
-#define BIG 1e30
-#define NPOLY 400
-#define NNTRSET 200
-
-const double eps = 1e-5, meps = -1e-5, oneminus = 1 - 1e-5, oneplus = 1 + 1e-5;
-
-int ntr = 0, iaux, ipixmin, ipixmax, ipixleft, ipixright, ipix,
+void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ);
+void polydiv();
+void update();
+int ntr, iaux, ipixmin, ipixmax, ipixleft, ipixright, ipix,
     jpix, jtop, jbot, j_old, l, jl, topcode[3], poly[NPOLY],
     npoly, lower[NSCREEN], upper[NSCREEN],
-    low[NSCREEN], up[NSCREEN], trset[NNTRSET], ntrset;
+    low[NSCREEN], up[NSCREEN], trset[NNTRSET], ntrset, isize = sizeof(int);
 double v11, v12, v13, v21, v22, v23, v32, v33, v43, d, c1, c2,
        Xrange, Yrange, Xvp_range, Yvp_range, Xmin, Xmax, Ymin, Ymax,
        deltaX, deltaY, denom, slope, Xleft[3], Xright[3], Yleft[3], Yright[3];
 
-struct {
+/*struct ver {
     double x,y,z;
     int *connect;
-} vertex[NVERTEX], *pvertex;
+};
+
+struct ver vertex[NVERTEX], *pvertex;
 
 struct {
     int A,B,C;
@@ -49,159 +39,334 @@ struct {
     int tr_cov;
     double tr_dist;
     struct node *start;
-} screen[NSCREEN][NSCREEN], *pointer;
+} Screen[NSCREEN][NSCREEN], *pointer;
+*/
+
+struct ver vertex[NVERTEX], *pvertex;
+struct tr triangle[NTRIANGLE], *ptriangle;
+struct node *pnode;
+struct scr ScreeN[NSCREEN][NSCREEN], *pointer;
+
 
 FILE *fpin;
 
-void skipbl();
-int reflo(double *px);
-int reint(int *pi);
-void add_linesegment(int P, int Q);
-int counter_clock(int i0, int i1, int i2, double *pdist, int code);
-void error(char *string);
-void coeff(double rho, double theta, double phi);
-void viewing(double x, double y, double z, double *pxe, double *pye, double *pze);
-void linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, int k0);
-void init_viewport(double *pXMIN, double *pXMAX, double *pYMIN, double *pYMAX0);
-void opengraph();
-
-
-int main(int argc, char *argv[])
+void check()
 {
-    int i, P, Q, ii, imin, vertexnr, *ptr, iconnect, i0, i1, i2, code, count, trnr, jtr;
-    double xO, yO, zO, rho, theta, phi, x, y, z, X, Y, xe, ze, ye,
-           diag, min_diag, Xvp_min, Xvp_max, Yvp_min, Yvp_max,
-           fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre,
-           xP, yP, zP, xQ, yQ, zQ, XP, YP, XQ, YQ,
-           Xlft, Xrght, Ylft, Yrght;
-    char ch;
+   printf("checkpoint\n");
+   char c;
+}
 
-    if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL)
-        printf("Input file is not correcly specified");
+void update()
+{
+    int i;
 
-    /* Initialize screen matrix*/
+    delay(20);
+    cleardevice();
+
+    for (i = 0; vertex[i].connect != NULL; ++i)
+        free(vertex[i].connect);
+
+    for (ipix = 0; ipix < NSCREEN; ++ipix)
+        for (jpix = 0; jpix < NSCREEN; ++jpix)
+            free(ScreeN[ipix][jpix].start);
+
+}
+
+void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ)
+{
+    moveto((int)(d * xP / zP + c1), (int)(yP * d / zP + c2));
+    lineto((int)(xQ * d / zQ + c1), (int)(yQ * d / zQ + c2));
+}
+
+void drawtr()
+{
+    int i, XA, YA, XB, YB, XC, YC, col;
+    for (i = 0; i < ntr; ++i) {
+        col = (int)rand() % 10 + 1;
+        setcolor(RED);
+
+        XA = (int)(vertex[triangle[i].A].x * d / vertex[triangle[i].A].z + c1);
+	YA = (int)(vertex[triangle[i].A].y * d / vertex[triangle[i].A].z + c2);
+	XB = (int)(vertex[triangle[i].B].x * d / vertex[triangle[i].B].z + c1);
+	YB = (int)(vertex[triangle[i].B].y * d / vertex[triangle[i].B].z + c2);
+	XC = (int)(vertex[triangle[i].C].x * d / vertex[triangle[i].C].z + c1);
+	YC = (int)(vertex[triangle[i].C].y * d / vertex[triangle[i].C].z + c2);
+        moveto(XA, YA);
+	lineto(XB, YB);
+        lineto(XC, YC);
+	lineto(XA, YA);
+	floodfill((XA + XB + 2 * XC) / 4, (YA + YB + 2 * YC) / 4, RED);
+    }
+    update();
+
+}
+
+void border_draw(double XMIN, double XMAX, double YMIN, double YMAX)
+{
+    int len = 5;
+
+    moveto(XMIN, YMIN + len); lineto(XMIN, YMIN); lineto(XMIN + len, YMIN);
+    moveto(XMAX - len, YMIN); lineto(XMAX, YMIN); lineto(XMAX, YMIN + len);
+    moveto(XMAX, YMAX - len); lineto(XMAX, YMAX); lineto(XMAX - len, YMAX);
+    moveto(XMIN + len, YMAX); lineto(XMIN, YMAX); lineto(XMIN, YMAX - len);
+    moveto((XMIN + XMAX) / 2, YMIN); lineto((XMIN + XMAX) / 2, YMIN);
+}
+
+
+void polydiv()
+{
+    int count, i1, i2, i0, ii, imin;
+    double diag, min_diag;
+    count = 1;
+    while (npoly > 2) {
+        min_diag = BIG;
+        for (i1 = 0; i1 < npoly; ++i1) {
+            i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
+            i2 = (i1 == npoly - 1 ? 0 : i1 + 1);
+            if (counter_clock(i0, i1, i2, &diag, 0) && diag < min_diag) {
+                min_diag = diag;
+                imin = i1;
+            }
+        }
+
+        i1 = imin;
+        i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
+        i2 = (i1 == npoly - 1 ? 0 : i1 + 1);
+
+        /* Запись треугольника в массив triangle и ассоциация его с пикслями */
+        counter_clock(i0, i1, i2, &diag, count++);
+        --npoly;
+        for (ii = i1; ii <= npoly; ++ii)
+            poly[ii] = poly[ii + 1];
+     }
+
+}
+
+void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, double yMIN, double yMAX)
+{
+    int i;
+        /* Инициализируем экранную матрицу*/
     for (ipix = 0; ipix < NSCREEN; ++ipix)
         for(jpix = 0; jpix < NSCREEN; ++jpix) {
-            pointer = &(screen[ipix][jpix]);
+            pointer = &(ScreeN[ipix][jpix]);
             pointer->tr_cov = -1; pointer->tr_dist = BIG;
             pointer->start = NULL;
         }
 
-    reflo(&xO); reflo(&yO); reflo(&zO);
-    printf("Give spherical coordinates rho, theta, phi");
-    scanf("%lf %lf %lf", &rho, &theta, &phi);
+    //reflo(&xO); reflo(&yO); reflo(&zO);
+    //fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
+    //scanf("%lf %lf %lf", &rho, &theta, &phi);
+
     coeff(rho, theta, phi);
 
-    init_viewport(&Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
-
+    //задаем область вывода
+    border_draw(xMIN, xMAX, yMIN, yMAX);
     /* Initialize vertex array */
     for (i = 0; i < NVERTEX; ++i)
         vertex[i].connect = NULL;
 
-    /* Read verticles*/
-    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
+
+}
+
+void read_vertex(double *Xmin, double *Xmax, double *Ymin, double *Ymax)
+{
+    int i, *ptr;
+    char ch;
+    double x, y, z, xO, yO, zO, xe, ye, ze, X, Y;
+
+    fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
+    *Xmin = *Ymin = BIG; *Xmax = *Ymax = -BIG;
     while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
         ungetc(ch,fpin);
-        reint(&i); reflo(&x); reflo(&y); reflo(&z);
-        if (i < 0 || i >= nvertex )
-            error("Illegal verticle number");
+        //reint(&i); reflo(&x); reflo(&y); reflo(&z);
+        fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
+        if (i < 0 || i >= NVERTEX )
+            error("Неверный номер вершины \n");
+        //преобразуем координаты (через матрицу поворота)
         viewing(x - xO, y - yO, z - zO, &xe, &ye, &ze);
         if (ze <= eps)
-            error("Objet point O and a vertex are on different sides of viewpoint E");
+            error("");
+
+        //находим max и min для масштабирования в наше окно вывода
         X = xe / ze; Y = ye / ze;
-        if (X < Xmin) Xmin = X; if (X > Xmax) Xmax = X;
-        if (Y < Ymin) Ymin = Y; if (Y > Ymax) Ymax = Y;
+        if (X < *Xmin) *Xmin = X; if (X > *Xmax) *Xmax = X;
+        if (Y < *Ymin) *Ymin = Y; if (Y > *Ymax) *Ymax = Y;
+
         vertex[i].x = xe; vertex[i].y = ye; vertex[i].z = ze;
-        vertex[i].connect = ptr = malloc(sizeof(int));
+        vertex[i].connect = ptr = (int *)malloc(sizeof(int));
         if (ptr == NULL)
             error("Memory allocation error");
         *ptr = 0;
     }
 
-    /* Compute screen constants*/
+}
+int main(int argc, char *argv[])
+{
+    int i, P, Q, ii, imin, vertexnr, *ptr, iconnect, i0, i1, i2, code, count, trnr, jtr;
+    double diag, min_diag, Xvp_min, Xvp_max, Yvp_min, Yvp_max,
+           fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre,
+           xP, yP, zP, xQ, yQ, zQ, XP, YP, XQ, YQ,
+           Xlft, Xrght, Ylft, Yrght, rho, theta, phi;
+    char ch;
+
+
+init_viewport(&Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
+opengraph();
+
+XInitThreads();
+srand(time(NULL));
+
+for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
+    if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL)
+        printf("Input file is not correcly specified");
+    ntr = 0;
+
+    extra_init(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+
+    /* Инициализируем экранную матрицу*/
+    /*for (ipix = 0; ipix < NSCREEN; ++ipix)
+        for(jpix = 0; jpix < NSCREEN; ++jpix) {
+            pointer = &(ScreeN[ipix][jpix]);
+            pointer->tr_cov = -1; pointer->tr_dist = BIG;
+            pointer->start = NULL;
+        }
+
+    //reflo(&xO); reflo(&yO); reflo(&zO);
+    fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
+    //scanf("%lf %lf %lf", &rho, &theta, &phi);
+
+    coeff(rho, theta, phi);
+
+    //задаем область вывода
+    border_draw(Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+     Initialize vertex array
+    for (i = 0; i < NVERTEX; ++i)
+        vertex[i].connect = NULL;*/
+
+
+    /* Читаем вершины, преобразуем и записываем в массив vertex */
+    read_vertex(&Xmin, &Xmax, &Ymin, &Ymax);
+
+ /*   fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
+    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
+    while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
+        ungetc(ch,fpin);
+        reint(&i); reflo(&x); reflo(&y); reflo(&z);
+        //fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
+        if (i < 0 || i >= NVERTEX )
+            error("Неверный номер вершины \n");
+	//преобразуем координаты (через матрицу поворота)
+        viewing(x - xO, y - yO, z - zO, &xe, &ye, &ze);
+        if (ze <= eps)
+            error("");
+
+	//находим max и min для масштабирования в наше окно вывода
+        X = xe / ze; Y = ye / ze;
+        if (X < Xmin) Xmin = X; if (X > Xmax) Xmax = X;
+        if (Y < Ymin) Ymin = Y; if (Y > Ymax) Ymax = Y;
+
+        vertex[i].x = xe; vertex[i].y = ye; vertex[i].z = ze;
+        vertex[i].connect = ptr = (int *)malloc(sizeof(int));
+        if (ptr == NULL)
+            error("Memory allocation error");
+        *ptr = 0;
+    }
+
+    /* Вычисляем значения для масштабирования */
     Xrange = Xmax - Xmin; Yrange = Ymax - Ymin;
     Xvp_range = Xvp_max - Xvp_min; Yvp_range = Yvp_max - Yvp_min;
-    fx = Xvp_range / Xrange; fy = Yvp_range / Xrange;
+    fx = Xvp_range / Xrange; fy = Yvp_range / Yrange;
     d = (fx < fy) ? fx : fy;
-    Xcentre = 0.5 * (Xmin + Xmax); Ycentre = 0.5 * (Ymax + Ymin);
-    Xvp_centre = 0.5 * (Xvp_min + Xvp_max); Yvp_centre = 0.5 * (Yvp_min + Yvp_max);
+    Xcentre = (Xmin + Xmax) / 2; Ycentre = (Ymax + Ymin) / 2;
+    Xvp_centre = (Xvp_min + Xvp_max) / 2; Yvp_centre = (Yvp_min + Yvp_max) / 2;
     c1 = Xvp_centre - d * Xcentre; c2 = Yvp_centre - d * Ycentre;
-    deltaX = oneplus * Xrange / NSCREEN;
+    deltaX = oneplus * Xrange / NSCREEN; // = Xrange / Nscreen
     deltaY = oneplus * Yrange / NSCREEN;
-    /* Now we have Xrange / deltaX < Nscreen*/
+    /*  */
 
-    /* Read object faces and store triangles*/
-    while (!isspace(getc(fpin))) {
-        while (reint(&i) > 0)
-            poly[0] = i; npoly = 1; skipbl();
-            while (ch = getc(fpin), ch != '#') {
-                ungetc(ch, fpin);
-                if (npoly == NPOLY) error("Too many verticles");
-                if (npoly == 2) {
-                    add_linesegment(POLY[0], POLY[1]);
-                    continue;
-                }
-                if (!counter_clock(0, 1, 2, &diag,0)) {
-                    continue;
-                }
-                for (i = 1; i <= npoly; ++i) {
-                    ii = i % npoly; code = poly[ii]; vertexnr = abs(code);
-                    if (vertex[vertexnr].connect == NULL)
-                        error("Undefined vertex number used \n");
-                    if (code < 0)
-                        poly[ii] = vertexnr;
-                    else add_linesegment(poly[i - 1], vertexnr);
-                }
 
-                /* Division of a polygon into triangles*/
-                count = 1;
-                while (npoly > 2) {
-                    min_diag = diag;
-                    for (i1 = 0; i1 < npoly; ++i1) {
-                        i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
-                        i2 = (i1 == npoly - 1 ? 0 : i1 + 1);
-                        if (counter_clock(i0, i1, i2, &diag, 0) && diag < min_diag)
-                            min_diag = diag; imin = i1;
-                    }
+    /* Читаем из файла грань обьекта и разбиваем на полигоны*/
 
-                i1 = imin;
-                i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
-                i2 = (i1 == npoly -1 ? 0 : i1 + 1);
+    while (!isspace(getc(fpin)))
+	;
+        //while (fscanf(fpin, "%d", &i) > 0) {
+    while (reint(&i) > 0) {
+        poly[0] = i; npoly = 1; skipbl();
+        while (ch = getc(fpin), ch != '#') {
+            ungetc(ch, fpin);
+            reint(&poly[npoly++]);
 
-                /* Store triangle in array TRIANGLE and in screen list*/
-                counter_clock(i0, i1, i2, &diag, count++);
-                --npoly;
-                for (ii = 1; ii <= npoly; ++ii)
-                    poly[ii] = poly[ii + 1];
-                }
+            if (npoly == NPOLY)
+                error("Слишком много вершин\n");
         }
+
+	if (npoly == 1)
+	    error("Только одна вершина\n");
+
+        if (npoly == 2) {
+           add_linesegment(poly[0], poly[1]);
+           continue;
+        }
+
+        //проверяем, является ли треугольник задним,  нет - считаем диагональ
+        if (!(counter_clock(0, 1, 2, &diag, 0)))
+            continue;
+
+        //записываем в поле connect информацию об соединениях вершин -> формируем отрезки PQ
+        for (i = 1; i <= npoly; ++i) {
+            ii = i % npoly;
+
+            if (vertex[abs(poly[ii])].connect == NULL)
+               error("Неопределенная вершина \n");
+
+            if (poly[ii] < 0)
+                poly[ii] = abs(poly[ii]);
+            else add_linesegment(poly[i - 1], poly[ii]);
+        }
+
+        /* Division of a polygon into triangles*/
+	polydiv();
+    }
+
     fclose(fpin);
 
-    /* Add nearest triangles to screen lists*/
+    /* Добавляем ближайшие треугольники в экранный список*/
     for (ipix = 0; ipix < NSCREEN; ++ipix)
         for (jpix = 0; jpix < NSCREEN; ++jpix) {
-            pointer = &(screen[ipix][jpix]);
+            pointer = &(ScreeN[ipix][jpix]);
+
             if ((*pointer).tr_cov >= 0) {
-                pnode = malloc(sizeof(struct node));
+                pnode = (struct node *)malloc(sizeof(struct node));
                 if (pnode == NULL)
                     error("Memory alloc error #2\n");
+
                 pnode->jtr = pointer->tr_cov;
                 pnode->next = pointer->start;
                 pointer->start = pnode;
             }
         }
 
-    /* Draw all line segments as far as they are visible*/
+
+   /*drawtr();/*
+
+//}
+
+    /* Проверяем видимость прямых и рисуем их */
     for (P = 0; P < NVERTEX; ++P) {
-        pvertex =  &vertex[P];
+        pvertex = vertex + P;
         ptr = pvertex->connect;
-        if (ptr = NULL) continue;
+        if (ptr == NULL) continue;
+
         xP = pvertex->x; yP = pvertex->y; zP = pvertex->z;
         XP = xP / zP; YP = yP / zP;
+
         for (iconnect = 1; iconnect <= *ptr; ++iconnect) {
             Q = *(ptr + iconnect);
-            pvertex = &vertex[Q];
+            pvertex = vertex + Q;
             xQ = pvertex->x; yQ = pvertex->y; zQ = pvertex->z;
+
+//	    drawsegment(xP, yP, zP, xQ, yQ, zQ); //!
+
             XQ = xQ / zQ; YQ = yQ / zQ;
 
             /* Using screen list, we shall build the set of triangles
@@ -217,58 +382,76 @@ int main(int argc, char *argv[])
                 Xrght = XP;
                 Yrght = YP;
             }
-
             ipixleft = xwhole(Xlft); ipixright = xwhole(Xrght);
+
             denom = Xrght - Xlft;
-            denom = fabs(denom) <= eps ? eps : denom;
+            if (fabs(denom) <= eps)
+                denom = eps;
+
             slope = (Yrght - Ylft) / denom;
             jbot = jtop = ywhole(Ylft);
-            for (ipix = ipixleft; ipix < ipixright; ++ipix) {
-                if (ipix == ipixright) {
+
+            for (ipix = ipixleft; ipix <= ipixright; ++ipix) {
+                if (ipix == ipixright)
                     jl = ywhole(Yrght);
-                } else {
+                else
                     jl = ywhole(Ylft + (xreal(ipix + 1) - Xlft) * slope);
-                }
 
                 lower[ipix] = min2(jbot,jl); jbot = jl;
                 upper[ipix] = max2(jtop,jl); jtop = jl;
             }
+
             ntrset = 0;
             for (ipix = ipixleft; ipix <= ipixright; ++ipix)
                 for (jpix = lower[ipix]; jpix <= upper[ipix]; ++jpix) {
-                    pointer = &(screen[ipix][jpix]);
+                    pointer = &(ScreeN[ipix][jpix]);
                     pnode = pointer->start;
                     while (pnode != NULL) {
                         trnr = pnode->jtr;
                         /* tnrn will be stored only if it is not yet present in array trset(triangle set)*/
                         trset[ntrset] = trnr; /* sentinel*/
+
                         jtr = 0;
                         while (trset[jtr] != trnr)
-                            ++jtr;
+                            jtr++
+;
                         if (jtr == ntrset) {
-                            ++ntrset;
-                            if (ntrset == nntrset) error("Triangle set overflow\n");
+                            ntrset++;
+                            if (ntrset == NNTRSET) error("Triangle set overflow\n");
                         }
                         pnode = pnode->next;
                     }
                 }
-            linesegment(xP, yP, zP, xQ, yQ, zQ, 0);
+	   //drawsegment(xP, yP, zP, xQ, yQ, zQ);
+           linesegment(xP, yP, zP, xQ, yQ, zQ, 0);
         }
     }
 
-    closegraph();
+    update();
+   /* delay(50);
+    cleardevice();
+
+    for (i = 0; vertex[i].connect != NULL; ++i)
+        free(vertex[i].connect);
+
+    for (ipix = 0; ipix < NSCREEN; ++ipix)
+        for (jpix = 0; jpix < NSCREEN; ++jpix)
+            free(ScreeN[ipix][jpix].start);*/
 }
 
-/*________________________________________*/
+}
+
 
 void skipbl()
 {
     char ch;
-    do ch = getc(fpin); while (issapce(ch));
+    do
+        ch = getc(fpin);
+    while
+        (isspace(ch));
     ungetc(ch, fpin);
 }
 
-/*________________________________________*/
 
 int reflo(double *px)
 {
@@ -282,7 +465,7 @@ int reint(int *pi)
     return fscanf(fpin, "%d", pi);
 }
 
-void add_linesegment(int P, int Q)
+/*void add_linesegment(int P, int Q)
 {
     int iaux, *ptr, ii, n;
     if (P > Q) {
@@ -291,11 +474,11 @@ void add_linesegment(int P, int Q)
         Q = iaux;
     }
 
-    ptr = VERTEX[P].connect; n = *ptr;
+    ptr = vertex[P].connect; n = *ptr;
     for (ii = 1; ii <= n; ++ii)
         if (*(ptr + ii) == Q) return;
     ++n;
-    VERTEX[P].connect = ptr = (int *)realloc(ptr, (n + 1) * isize);
+    vertex[P].connect = ptr = (int *)realloc(ptr, (n + 1) * isize);
     if (ptr == NULL) error("Memory alloc error \n");
     *(ptr + n) = Q; *ptr = n;
 }
@@ -306,19 +489,19 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
         code = 0 : compute orientation
         code = 1 : compute a,b,c,h, store the first triangle
         code > 1 : check if next triangle is coplanar; store it
-    */
+    /
 
-    int A = abs(POLY[i0]), B = abs(POLY[i1]), C = abs(POLY[i2]);
+    int A = abs(poly[i0]), B = abs(poly[i1]), C = abs(poly[i2]);
     double   xA, yA, zA, xB, yB, zB, xC, yC, zC, r, xdist, ydist, zdist,
              XA, YA, XB, YB, XC, YC, h0,
              DA, DB, DC, D, DAB, DAC, DBC, aux, dist, xR, yR;
     static double a,b,c,h;
 
-    pvertex = VERTEX + A;
+    pvertex = vertex + A;
     xA = pvertex->x; yA = pvertex->y; zA = pvertex->z;
-    pvertex = VERTEX + B;
+    pvertex = vertex + B;
     xB = pvertex->x; yB = pvertex->y; zB = pvertex->z;
-    pvertex = VERTEX + A;
+    pvertex = vertex + C;
     xC = pvertex->x; yC = pvertex->y; zC = pvertex->z;
 
     h0 = xA * (yB * zC - yC * zB) -
@@ -341,8 +524,8 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
     } else if (fabs(a * xC + b * yC + c * zC - h) > 0.001 * fabs(h))
 	error("Incorrectly specified polygon \n");
 
-    if (ntr = ntriangle) error("Too many triangles");
-    ptriangle = TRIANGLE + ntr;
+    if (ntr = NTRIANGLE) error("Too many triangles");
+    ptriangle = triangle + ntr;
     ptriangle->A = A; ptriangle->B = B; ptriangle->C = C;
     ptriangle->a = a; ptriangle->b = b; ptriangle->c = c;
     ptriangle->h = h;
@@ -371,8 +554,8 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
     ipixmax = xwhole(max3(XA, XB, XC));
 
     for (ipix = ipixmin; ipix <= ipixmax; ++ipix) {
-	LOWER[ipix] = UP[ipix] = 10000;
-	UPPER[ipix] = LOW[ipix] = -10000;
+	lower[ipix] = up[ipix] = 10000;
+	upper[ipix] = low[ipix] = -10000;
     }
 
     for (i = 0; i < 3; ++i) {
@@ -385,23 +568,23 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
                 jl = xwhole(Yright[i]);
             else jl = xwhole(Yleft[i] + (xreal(ipix + 1) - Xleft[i]) * slope);
             if (topcode[i]) {
-                UPPER[ipix] = max3(j_old, jl, UPPER[ipix]);
-                UP[ipix] = min3(j_old, jl, UP[ipix]);
+                upper[ipix] = max3(j_old, jl, upper[ipix]);
+                up[ipix] = min3(j_old, jl, up[ipix]);
             } else {
-                LOWER[ipix] = max3(j_old, jl, LOWER[ipix]);
-                LOW[ipix] = min3(j_old, jl, LOW[ipix]);
+                lower[ipix] = max3(j_old, jl, lower[ipix]);
+                low[ipix] = min3(j_old, jl, low[ipix]);
             }
             j_old = jl;
 	}
     }
     for (ipix = ipixmin; ipix <= ipixmax; ++ipix)
-        for (jpix = LOWER[ipix]; jpix <= UPPER[ipix]; ++jpix) {
-            pointer = &(SCREEN[ipix][jpix]);
-            if (jpix > LOW[ipix] && jpix < UP[ipix]) {
+        for (jpix = lower[ipix]; jpix <= upper[ipix]; ++jpix) {
+            pointer = &(Screen[ipix][jpix]);
+            if (jpix > low[ipix] && jpix < up[ipix]) {
                 xR = Xmin + (ipix + 0.5) * deltaX;
                 yR = Ymin + (jpix + 0.5) * deltaY;
                 denom = a * xR + b * yR + c * d;
-                dist = fabs(denom) > eps ? h * sqrt(xR*xR + yR*yR + 1.) / denom : big;
+                dist = fabs(denom) > eps ? h * sqrt(xR*xR + yR*yR + 1.) / denom : BIG;
 
                 if (dist < pointer->tr_dist) {
                     pointer->tr_cov = ntr;
@@ -418,8 +601,7 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
         }
 }
 
-
-/*___________________________*/
+*/
 
 void error(char *string)
 {
@@ -459,19 +641,19 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
            C1, C2, C3, K1, K2, K3, denom1, denom2,
            Cpos, Ppos, Qpos, aux, eps1, a, b, c, h, hP, hQ, r1, r2, r3;
 
-    while(k < ntrset) {
-	j = trset[k];
-	ptriangle = TRIANGLE + j;
+    //while(k < ntrset) {
+      //  j = trset[k];
+     while (k < ntr) {
+	ptriangle = triangle + k;
         a = ptriangle->a; b = ptriangle->b;  c = ptriangle->c;
-        h = ptriangle->h; eps1 = eps + eps * h;
-
+        h = ptriangle->h;
 
        /* TEST #1*/
 
         hP = a * xP + b * yP + c * zP;
         hQ = a * xQ + b * yQ + c * zQ;
 	eps1 = eps + eps * h;
-        if (hP < h + eps1 && hQ < h + eps1) {
+        if (hP - h <= eps && hQ - h <= eps) {
             ++k;          /* PQ is not behind ABC*/
             continue;
         }
@@ -480,11 +662,11 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
 
         K1 = yP * zQ - yQ * zP; K2 = zP * xQ - zQ * xP; K3 = xP * yQ - xQ * yP;
         A = ptriangle->A;  B = ptriangle->B; C = ptriangle->C;
-	pvertex = VERTEX + A;
+	pvertex = vertex + A;
         xA = pvertex->x; yA = pvertex->y; zA = pvertex->z;
-	pvertex = VERTEX + B;
+	pvertex = vertex + B;
         xB = pvertex->x; yB = pvertex->y; zB = pvertex->z;
-	pvertex = VERTEX + C;
+	pvertex = vertex + C;
         xC = pvertex->x; yC = pvertex->y; zC = pvertex->z;
 
         dA = K1 * xA + K2 * yA + K3 * zA;
@@ -497,14 +679,14 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
 
         sum = eA + eB + eC;
         if (abs(sum) >= 2) {
-            ++j;
+            ++k;
             continue;
         }
 
 	/* TEST #3*/
 
-        Poutside = Qoutside = 0; MIN = 1; MAX = 0;
-        for(i = 0; i < 3; ++i) {
+        Poutside = Qoutside = 0; labmin = 1; labmax = 0;
+        for (i = 0; i < 3; ++i) {
             C1 = yA * zB - yB * zA; C2 = zA * xB - zB * xA; C3 = xA * yB - xB * yA;
             Cpos = C1 * xC + C2 * yC + C3 * zC;
             Ppos = C1 * xP + C2 * yP + C3 * zP;
@@ -513,20 +695,26 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
             denom1 = Qpos - Ppos;
             if (Cpos > eps) {
                 Pbeyond = Ppos < meps; Qbeyond = Qpos < meps;
-                outside = Pbeyond && Qpos <= eps || Qbeyond && Ppos <= eps;
+                outside = (Pbeyond && (Qpos <= eps)) || (Qbeyond && (Ppos <= eps));
             } else if (Cpos < meps) {
                        Pbeyond = Ppos > eps; Qbeyond = Qpos > eps;
-                       outside = Pbeyond && Qpos >= meps || Qbeyond && Ppos >= meps;
+                       outside = (Pbeyond && (Qpos >= meps)) || (Qbeyond && (Ppos >= meps));
                    } else outside = 1;
-            if (outside) break;
-            lab = fabs(denom1) <= eps ? 1e7 : -Ppos / denom1;
+
+            if (outside)
+                break;
+            lab = fabs(denom1) <= eps ? 1.e7 : -Ppos / denom1;
+                //lab указывает на точку пересечения PQ с EAB
 
             Poutside |= Pbeyond; Qoutside |= Qbeyond;
             denom2 = dB - dA;
-            mu = fabs(denom2) <= eps ? 1e7 : -dA / denom2;
+            mu = fabs(denom2) <= eps ? 1.e7 : -dA / denom2;
+                //mu указывает на точку пересечения AB с EPQ
             if (mu >= meps && mu <= oneplus && lab >= meps && lab <= oneplus) {
-                if (lab < MIN) MIN = lab;
-                if (lab > MAX) MAX = lab;
+                if (lab < labmin)
+                    labmin = lab;
+                if (lab > labmax)
+                    labmax = lab;
             }
 
             aux = xA; xA = xB; xB = xC; xC = aux;
@@ -534,6 +722,7 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
             aux = zA; zA = zB; zB = zC; zC = aux;
             aux = dA; dA = dB; dB = dC; dC = aux;
         }
+
         if (outside) {
             k++;
             continue;
@@ -544,52 +733,63 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
         if(!(Poutside || Qoutside)) {
             worktodo = 0;
             break;
-        }
+        } //PQ невидим
+
 
         /* TEST #5*/
 
         r1 = xQ - xP; r2 = yQ - yP; r3 = zQ - zP;
 
-        xmin = xP + MIN * r1; ymin = yP + MIN * r2; zmin = zP + MIN * r3;
-        if (a * xmin + b * ymin + c * zmin < h - eps1) {
+        xmin = xP + labmin * r1; ymin = yP + labmin * r2; zmin = zP + labmin * r3;
+        if (a * xmin + b * ymin + c * zmin - h < -eps1) {
             ++k;
             continue;
         }
 
-        xmax = xP + MAX * r2; ymax = yP + MAX * r2; zmax = zP + MAX * r3;
-        if (a * xmax + b * ymax + c * zmax < h - eps1) {
+        xmax = xP + labmax * r2; ymax = yP + labmax * r2; zmax = zP + labmax * r3;
+        if (a * xmax + b * ymax + c * zmax - h < -eps1) {
             ++k;
             continue;
         }
 
         /* TEST #6*/
 
-        if (Poutside)
+        if (Poutside || hP < h - eps1)
             linesegment(xP, yP, zP, xmin, ymin, zmin, k + 1);
-        if (Qoutside)
+        if (Qoutside || hQ < h - eps1)
             linesegment(xQ, yQ, zQ, xmax, ymax, zmax, k + 1);
         worktodo = 0;
         break;
     }
 
-	if (worktodo) {
-        moveto((int)(xP / zP * 4000), (int)(yP / zP * 4000));
-        lineto((int)(xQ / zQ * 4000), (int)(yQ / zQ * 4000));
+    if (worktodo) {
+        moveto((int)(d * xP / zP + c1), (int)(d * yP / zP + c2));
+        lineto((int)(d * xQ / zQ + c1), (int)(d * yQ / zQ + c2));
     }
 }
 
 void init_viewport(double *pXMIN, double *pXMAX, double *pYMIN, double *pYMAX)
 {
-    double XMIN, XMAX, YMIN, YMAX, len = 0.2;
+    double XMIN, XMAX, YMIN, YMAX;
+    double len = 5;
     printf("Give viewport boundaries XMIN, XMAX, YMIN, YMAX\n");
-    scanf("%lf %lf %lf %lf", &XMIN, &XMAX, &YMIN, &YMAX);
-    opengraph();
+    scanf("%lf %lf %lf %lf", pXMIN, pXMAX, pYMIN, pYMAX);
+ //   opengraph();
+ 
+    /* Рисование границы вывода */
+   /* moveto(XMIN, YMIN + len); lineto(XMIN, YMIN); lineto(XMIN + len, YMIN);
+    moveto(XMAX - len, YMIN); lineto(XMAX, YMIN); lineto(XMAX, YMIN + len);
+    moveto(XMAX, YMAX - len); lineto(XMAX, YMAX); lineto(XMAX - len, YMAX);
+    moveto(XMIN + len, YMAX); lineto(XMIN, YMAX); lineto(XMIN, YMAX - len);
+    moveto((XMIN + XMAX) / 2, YMIN); lineto((XMIN + XMAX) / 2, YMIN);
 
-    *pXMIN = XMIN; *pXMAX = XMAX; *pYMIN = YMIN; *pYMAX = YMAX; 
+    *pXMIN = XMIN; *pXMAX = XMAX; *pYMIN = YMIN; *pYMAX = YMAX;*/
 }
 
 void opengraph()
 {
     int gd = DETECT, gm;
     initgraph(&gd, &gm, NULL);
+    setcolor(RED);
+//    setfillstyle(1, WHITE);
 }
