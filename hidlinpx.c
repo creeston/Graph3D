@@ -7,9 +7,7 @@
 #include<time.h>
 #include<SDL/SDL.h>
 
-void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ);
-void polydiv();
-void update();
+
 int ntr, iaux, ipixmin, ipixmax, ipixleft, ipixright, ipix,
     jpix, jtop, jbot, j_old, l, jl, topcode[3], poly[NPOLY],
     npoly, lower[NSCREEN], upper[NSCREEN],
@@ -47,8 +45,106 @@ struct tr triangle[NTRIANGLE], *ptriangle;
 struct node *pnode;
 struct scr ScreeN[NSCREEN][NSCREEN], *pointer;
 
-
 FILE *fpin;
+
+void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ);
+void polydiv();
+void update();
+void check();
+void update();
+void border_draw(double XMIN, double XMAX, double YMIN, double YMAX);
+void drawtr();
+void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, double yMIN, double yMAX);
+void read_vertex();
+void scale_calc(double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max);
+void read_faces();
+void tr_add();
+void line_and_pix();
+void read_and_draw();
+
+
+int main(int argc, char *argv[])
+{
+    int i, running = 1, rotate = 0, xcountpos = 0, xcountneg = 0, ycountpos = 0, ycountneg = 0;
+    double Xvp_min, Xvp_max, Yvp_min, Yvp_max, rho = 3000, theta = 45, phi = 0;
+    char ch;
+    int dx, dy, x, y;
+
+
+    init_viewport(&Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
+    opengraph();
+
+    /* Открытие файла*/
+    if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL)
+        printf("Input file is not correcly specified");
+    ntr = 0;
+
+    read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+	    switch (event.type) {
+		case SDL_QUIT:
+                    running = 0;
+		    closegraph();
+		    return 0;
+                    break;
+                case SDL_MOUSEBUTTONDOWN:
+                    x = event.button.x;
+                    y = event.button.y;
+                    if (x > Xvp_min && x < Xvp_max && y > Yvp_min && y < Yvp_max / 2)
+                        rotate = 1;
+                    if (x > Xvp_min && x < Xvp_max / 2 && y > Yvp_min && y < Yvp_max)
+                        rotate = 1;
+                    break;
+                case SDL_MOUSEBUTTONUP:
+                    rotate = 0;
+                    break;
+                case SDL_MOUSEMOTION:
+                    if (rotate && event.motion.x < Xvp_max && event.motion.y < Yvp_max) {
+                        dx = event.motion.xrel;
+                        dy = event.motion.yrel;
+                        if (dy > 0) ycountpos++;
+                        if (dy < 0) ycountneg++;
+                        if (dx > 0) xcountpos++;
+                        if (dx < 0) xcountneg++;
+
+                        if (ycountpos == 4) {
+                            phi += 2;
+                            update();
+                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            ycountpos = 0;
+                        }
+                        if (ycountneg == 4) {
+                            phi -= 2;
+                            update();
+                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            ycountneg = 0;
+                        }
+                        if (xcountpos == 4) {
+                            theta +=2;
+                            update();
+                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            xcountpos = 0;
+                        }
+                        if (xcountneg == 4) {
+                            theta -= 2;
+                            update();
+                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            xcountneg = 0;
+                        }
+
+                        //update();
+                        //read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+
+                        break;
+                    }
+             }
+
+        }
+    }
+}
 
 void check()
 {
@@ -69,6 +165,8 @@ void update()
     for (ipix = 0; ipix < NSCREEN; ++ipix)
         for (jpix = 0; jpix < NSCREEN; ++jpix)
             free(ScreeN[ipix][jpix].start);
+    ntr = 0;
+    fseek(fpin, 0L, SEEK_SET);
 
 }
 
@@ -145,7 +243,8 @@ void polydiv()
 void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, double yMIN, double yMAX)
 {
     int i;
-        /* Инициализируем экранную матрицу*/
+
+    /* Инициализируем экранную матрицу*/
     for (ipix = 0; ipix < NSCREEN; ++ipix)
         for(jpix = 0; jpix < NSCREEN; ++jpix) {
             pointer = &(ScreeN[ipix][jpix]);
@@ -153,29 +252,27 @@ void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, 
             pointer->start = NULL;
         }
 
-    //reflo(&xO); reflo(&yO); reflo(&zO);
-    //fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
-    //scanf("%lf %lf %lf", &rho, &theta, &phi);
-
+    /* Считаем матрицу поворота*/
     coeff(rho, theta, phi);
 
-    //задаем область вывода
+    /* задаем область вывода */
     border_draw(xMIN, xMAX, yMIN, yMAX);
-    /* Initialize vertex array */
+
+    /* Инициализируем массив вершин */
     for (i = 0; i < NVERTEX; ++i)
         vertex[i].connect = NULL;
 
 
 }
 
-void read_vertex(double *Xmin, double *Xmax, double *Ymin, double *Ymax)
+void read_vertex()
 {
     int i, *ptr;
     char ch;
     double x, y, z, xO, yO, zO, xe, ye, ze, X, Y;
 
     fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
-    *Xmin = *Ymin = BIG; *Xmax = *Ymax = -BIG;
+    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
     while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
         ungetc(ch,fpin);
         //reint(&i); reflo(&x); reflo(&y); reflo(&z);
@@ -189,79 +286,6 @@ void read_vertex(double *Xmin, double *Xmax, double *Ymin, double *Ymax)
 
         //находим max и min для масштабирования в наше окно вывода
         X = xe / ze; Y = ye / ze;
-        if (X < *Xmin) *Xmin = X; if (X > *Xmax) *Xmax = X;
-        if (Y < *Ymin) *Ymin = Y; if (Y > *Ymax) *Ymax = Y;
-
-        vertex[i].x = xe; vertex[i].y = ye; vertex[i].z = ze;
-        vertex[i].connect = ptr = (int *)malloc(sizeof(int));
-        if (ptr == NULL)
-            error("Memory allocation error");
-        *ptr = 0;
-    }
-
-}
-int main(int argc, char *argv[])
-{
-    int i, P, Q, ii, imin, vertexnr, *ptr, iconnect, i0, i1, i2, code, count, trnr, jtr;
-    double diag, min_diag, Xvp_min, Xvp_max, Yvp_min, Yvp_max,
-           fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre,
-           xP, yP, zP, xQ, yQ, zQ, XP, YP, XQ, YQ,
-           Xlft, Xrght, Ylft, Yrght, rho, theta, phi;
-    char ch;
-
-
-init_viewport(&Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
-opengraph();
-
-XInitThreads();
-srand(time(NULL));
-
-for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
-    if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL)
-        printf("Input file is not correcly specified");
-    ntr = 0;
-
-    extra_init(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
-
-    /* Инициализируем экранную матрицу*/
-    /*for (ipix = 0; ipix < NSCREEN; ++ipix)
-        for(jpix = 0; jpix < NSCREEN; ++jpix) {
-            pointer = &(ScreeN[ipix][jpix]);
-            pointer->tr_cov = -1; pointer->tr_dist = BIG;
-            pointer->start = NULL;
-        }
-
-    //reflo(&xO); reflo(&yO); reflo(&zO);
-    fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
-    //scanf("%lf %lf %lf", &rho, &theta, &phi);
-
-    coeff(rho, theta, phi);
-
-    //задаем область вывода
-    border_draw(Xvp_min, Xvp_max, Yvp_min, Yvp_max);
-     Initialize vertex array
-    for (i = 0; i < NVERTEX; ++i)
-        vertex[i].connect = NULL;*/
-
-
-    /* Читаем вершины, преобразуем и записываем в массив vertex */
-    read_vertex(&Xmin, &Xmax, &Ymin, &Ymax);
-
- /*   fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
-    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
-    while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
-        ungetc(ch,fpin);
-        reint(&i); reflo(&x); reflo(&y); reflo(&z);
-        //fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
-        if (i < 0 || i >= NVERTEX )
-            error("Неверный номер вершины \n");
-	//преобразуем координаты (через матрицу поворота)
-        viewing(x - xO, y - yO, z - zO, &xe, &ye, &ze);
-        if (ze <= eps)
-            error("");
-
-	//находим max и min для масштабирования в наше окно вывода
-        X = xe / ze; Y = ye / ze;
         if (X < Xmin) Xmin = X; if (X > Xmax) Xmax = X;
         if (Y < Ymin) Ymin = Y; if (Y > Ymax) Ymax = Y;
 
@@ -272,7 +296,12 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
         *ptr = 0;
     }
 
-    /* Вычисляем значения для масштабирования */
+}
+
+void scale_calc(double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max)
+{
+    double fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre;
+
     Xrange = Xmax - Xmin; Yrange = Ymax - Ymin;
     Xvp_range = Xvp_max - Xvp_min; Yvp_range = Yvp_max - Yvp_min;
     fx = Xvp_range / Xrange; fy = Yvp_range / Yrange;
@@ -282,33 +311,35 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
     c1 = Xvp_centre - d * Xcentre; c2 = Yvp_centre - d * Ycentre;
     deltaX = oneplus * Xrange / NSCREEN; // = Xrange / Nscreen
     deltaY = oneplus * Yrange / NSCREEN;
-    /*  */
 
+}
 
-    /* Читаем из файла грань обьекта и разбиваем на полигоны*/
-
+void read_faces()
+{
+    int i, ii;
+    char ch;
+    double diag;
     while (!isspace(getc(fpin)))
-	;
-        //while (fscanf(fpin, "%d", &i) > 0) {
+        ;
+
     while (reint(&i) > 0) {
         poly[0] = i; npoly = 1; skipbl();
         while (ch = getc(fpin), ch != '#') {
             ungetc(ch, fpin);
             reint(&poly[npoly++]);
-
             if (npoly == NPOLY)
                 error("Слишком много вершин\n");
         }
 
-	if (npoly == 1)
-	    error("Только одна вершина\n");
+        if (npoly == 1)
+            error("Только одна вершина\n");
 
         if (npoly == 2) {
            add_linesegment(poly[0], poly[1]);
            continue;
         }
 
-        //проверяем, является ли треугольник задним,  нет - считаем диагональ
+        //проверяем, является ли треугольник задним
         if (!(counter_clock(0, 1, 2, &diag, 0)))
             continue;
 
@@ -324,13 +355,14 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
             else add_linesegment(poly[i - 1], poly[ii]);
         }
 
-        /* Division of a polygon into triangles*/
-	polydiv();
+        /* Разбиение треугольника на полигоны */
+        polydiv();
     }
+//!//    fclose(fpin);
+}
 
-    fclose(fpin);
-
-    /* Добавляем ближайшие треугольники в экранный список*/
+void tr_add()
+{
     for (ipix = 0; ipix < NSCREEN; ++ipix)
         for (jpix = 0; jpix < NSCREEN; ++jpix) {
             pointer = &(ScreeN[ipix][jpix]);
@@ -346,12 +378,13 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
             }
         }
 
+}
 
-   /*drawtr();/*
+void line_and_pix()
+{
+    int P,Q, iconnect, *ptr, i, jtr, trnr;
+    double xQ, yQ, zQ, xP, yP, zP, XQ, YQ, XP, YP, Xlft, Xrght, Ylft, Yrght;
 
-//}
-
-    /* Проверяем видимость прямых и рисуем их */
     for (P = 0; P < NVERTEX; ++P) {
         pvertex = vertex + P;
         ptr = pvertex->connect;
@@ -365,7 +398,7 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
             pvertex = vertex + Q;
             xQ = pvertex->x; yQ = pvertex->y; zQ = pvertex->z;
 
-//	    drawsegment(xP, yP, zP, xQ, yQ, zQ); //!
+//          drawsegment(xP, yP, zP, xQ, yQ, zQ); //!
 
             XQ = xQ / zQ; YQ = yQ / zQ;
 
@@ -422,24 +455,34 @@ for (phi = 0, theta = 45, rho = 2000; ; phi += 2, theta += 2) {
                         pnode = pnode->next;
                     }
                 }
-	   //drawsegment(xP, yP, zP, xQ, yQ, zQ);
-           linesegment(xP, yP, zP, xQ, yQ, zQ, 0);
+           drawsegment(xP, yP, zP, xQ, yQ, zQ);
+           //linesegment(xP, yP, zP, xQ, yQ, zQ, 0);
         }
     }
-
-    update();
-   /* delay(50);
-    cleardevice();
-
-    for (i = 0; vertex[i].connect != NULL; ++i)
-        free(vertex[i].connect);
-
-    for (ipix = 0; ipix < NSCREEN; ++ipix)
-        for (jpix = 0; jpix < NSCREEN; ++jpix)
-            free(ScreeN[ipix][jpix].start);*/
 }
 
+void read_and_draw(double rho, double theta, double phi, double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max)
+{
+    /* Иниц. экранную матрицу, матрицу поворота, массив вершин, область вывода */
+    extra_init(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+
+    /* Читаем вершины, преобразуем и записываем в массив vertex */
+    read_vertex();
+
+    /* Вычисляем значения для масштабирования */
+    scale_calc(Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+
+    /* Читаем из файла грани обьекта и разбиваем на полигоны*/
+    read_faces();
+
+    /* Добавляем ближайшие треугольники в экранный список*/
+    tr_add();
+
+    /* Проверяем видимость прямых и рисуем их */
+    line_and_pix();
+
 }
+
 
 
 void skipbl()
@@ -641,9 +684,9 @@ void linesegment(double xP, double yP, double zP, double xQ, double yQ, double z
            C1, C2, C3, K1, K2, K3, denom1, denom2,
            Cpos, Ppos, Qpos, aux, eps1, a, b, c, h, hP, hQ, r1, r2, r3;
 
-    //while(k < ntrset) {
-      //  j = trset[k];
-     while (k < ntr) {
+    while(k < ntrset) {
+        j = trset[k];
+     //while (k < ntr) {
 	ptriangle = triangle + k;
         a = ptriangle->a; b = ptriangle->b;  c = ptriangle->c;
         h = ptriangle->h;
@@ -774,16 +817,10 @@ void init_viewport(double *pXMIN, double *pXMAX, double *pYMIN, double *pYMAX)
     double len = 5;
     printf("Give viewport boundaries XMIN, XMAX, YMIN, YMAX\n");
     scanf("%lf %lf %lf %lf", pXMIN, pXMAX, pYMIN, pYMAX);
- //   opengraph();
- 
-    /* Рисование границы вывода */
-   /* moveto(XMIN, YMIN + len); lineto(XMIN, YMIN); lineto(XMIN + len, YMIN);
-    moveto(XMAX - len, YMIN); lineto(XMAX, YMIN); lineto(XMAX, YMIN + len);
-    moveto(XMAX, YMAX - len); lineto(XMAX, YMAX); lineto(XMAX - len, YMAX);
-    moveto(XMIN + len, YMAX); lineto(XMIN, YMAX); lineto(XMIN, YMAX - len);
-    moveto((XMIN + XMAX) / 2, YMIN); lineto((XMIN + XMAX) / 2, YMIN);
 
-    *pXMIN = XMIN; *pXMAX = XMAX; *pYMIN = YMIN; *pYMAX = YMAX;*/
+    XInitThreads();
+    srand(time(NULL));
+
 }
 
 void opengraph()
