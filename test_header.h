@@ -1,3 +1,5 @@
+#include <SDL/SDL.h>
+
 #define max2(x,y) ((x) > (y) ? (x) : (y))
 #define min2(x,y) ((x) < (y) ? (x) : (y))
 #define max3(x,y,z) ((x) > (y) ? max2(x,z) : max2(y,z))
@@ -8,16 +10,12 @@
 
 #define M -1000000.0
 #define NVERTEX 3000
-#define NTRIANGLE 200
+#define NTRIANGLE 2000
 #define NSCREEN 40
 #define BIG 1e30
 #define NPOLY 400
 #define NNTRSET 200
 
-#define eps 1e-5
-#define meps -1e-5
-#define oneminus (1 - 1e-5)
-#define oneplus (1 + 1e-5)
 
 struct ver {
     double x,y,z;
@@ -40,7 +38,12 @@ struct scr{
     struct node *start;
 };
 
+/* SDL.c*/
+struct color{
+    int r,g,b;
+};
 
+/////////////////////////////////////////////////////////
 void linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, int k0);
 void add_linesegment(int P, int Q);
 int counter_clock(int i0, int i1, int i2, double *pdist, int code);
@@ -55,3 +58,8 @@ void opengraph();
 void check();
 void drawtr();
 
+/* SDL.c */
+void putpix(int x, int y, Uint32 pixel);
+void init(int width, int height, int depth);
+void drawpix(int x, int y, struct color C);
+void clearscreen();

@@ -12,7 +12,7 @@ extern int ntr, iaux, ipixmin, ipixmax, ipixleft, ipixright, ipix,
 extern double v11, v12, v13, v21, v22, v23, v32, v33, v43, d, c1, c2,
        Xrange, Yrange, Xvp_range, Yvp_range, Xmin, Xmax, Ymin, Ymax,
        deltaX, deltaY, denom, slope, Xleft[3], Xright[3], Yleft[3], Yright[3];
-
+extern double eps, meps, oneplus, oneminus;
 extern struct ver vertex[NVERTEX], *pvertex;
 extern struct tr triangle[NTRIANGLE], *ptriangle;
 extern struct node *pnode;
@@ -64,7 +64,7 @@ int counter_clock(int i0, int i1, int i2, double *pdist, int code)
     h0 = xA * (yB * zC - yC * zB) - xB * (yA * zC - yC * zA) + xC * (yA * zB - yB * zA);
 
     if (code == 0)
-        if (h0 > eps) {
+        if (h0 > eps) {//was (h0 > eps || h0 < eps)
             xdist = xC - xA; ydist = yC - yA; zdist = zC - zA;
             *pdist = sqrt(xdist * xdist + ydist * ydist + zdist * zdist); //!!!!!!!! -sqrt();
             return 1;
