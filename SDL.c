@@ -1,3 +1,10 @@
+/*
+*  TODO
+*  SDL -> SDL2
+*     Проблемы, из которых я ещё этого не сделал: 
+*	1. Не воспринимает SDL_Eventы в main функции
+*
+*/
 #include <stdio.h>
 #include <SDL/SDL.h>
 #include <stdlib.h>
@@ -5,55 +12,51 @@
 
 #include "test_header.h"
 
+//SDL_Window *window;
+//SDL_Renderer *render;
 SDL_Surface *screen;
 
 void clearscreen()
 {
-    int i,j;
-    struct color Cl = {255,255,255};
+    //SDL_SetRenderDrawColor(render, 0,0,0,255);
+    //SDL_RenderClear(render);
+    //SDL_RenderPresent(render);
     SDL_UpdateRect(screen,0,0,0,0);
     SDL_FillRect(screen, NULL, 0x000000);
 }
 
+void update_render()
+{
+//    SDL_RenderPresent(render);
+}
+
 void init(int width, int height, int depth)
 {
+//    SDL_Init(SDL_INIT_EVERYTHING);
+//    window = SDL_CreateWindow("3d", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_SHOWN);
+//    render = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+//    SDL_SetRenderDrawColor(render, 0,0,0,255);
+//    SDL_RenderClear(render);
+//    SDL_RenderPresent(render);
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("Couldn't initialize SDL: %s \n", SDL_GetError());
-        exit(1);
-    }
-
-    atexit(SDL_Quit);
-
-    //SDL_DisplayFormat(screen);
     screen = SDL_SetVideoMode(width, height, depth, SDL_SWSURFACE | SDL_ANYFORMAT);
-    if (screen == NULL)
-	printf("error\n");
-
 }
 
 void drawpix(int x, int y, struct color C)
 {
+    //SDL_SetRenderDrawColor(render, 12, 37, 23, 255);
+    //SDL_RenderDrawPoint(render,x,y);
     Uint32 dye;
     dye = SDL_MapRGB(screen->format, C.r, C.g, C.b);
-
-/*    if (SDL_MUSTLOCK(screen)) {
-        if (SDL_LockSurface(screen) < 0) {
-            fprintf(stderr, "Cant lock screen: %s \n", SDL_GetError());
-            return;
-        }
-    }*/
-
     putpix(x, y, dye);
-
-  /*  if (SDL_MUSTLOCK(screen)) {
-        SDL_UnlockSurface(screen);
-    }*/
-
-    //SDL_UpdateRect(screen, x, y, 1, 1);
-
 }
 
+SDL_Event GetEvent()
+{
+    SDL_Event event;
+    SDL_PollEvent(&event);
+    return event;
+}
 /* int main(int argc, char *argv[])
 {
     int width, height, x;
@@ -95,6 +98,39 @@ void putpix(int x, int y, Uint32 pixel)
             *(Uint32 *)p = pixel;
             break;
     }
-    
+
 }
 
+void line(int x0, int y0, int x1, int y1, struct color Cl)
+{
+    int steep = 0;
+    if (abs(x0 - x1) < abs(y0 - y1)) {
+        swapI(&x0, &y0);
+        swapI(&x1, &y1);
+        steep = 1;
+    }
+
+    if (x0 > x1) {
+        swapI(&x0, &x1);
+        swapI(&y0, &y1);
+    }
+
+    for (int x = x0; x <= x1; ++x) {
+        float t = (x - x0) / (float)(x1 - x0);
+        int y = y0 * (1. - t) + y1 * t;
+        if (steep)
+            drawpix(y, x, Cl);
+        else
+            drawpix(x, y, Cl);
+    }
+}
+
+void DrawRect(int x1, int y1, int x2, int y2, struct color C, int width)
+{
+    for (int i = 0; i < width; ++i) {
+        line(x1 - i, y1 - i, x2 + i, y1 - i, C);
+        line(x2 + i, y1 - i, x2 + i, y2 + i, C);
+        line(x2 + i, y2 + i, x1 - i, y2 + i, C);
+        line(x1 - i, y2 + i, x1 - i, y1 + i, C);
+    }
+}

@@ -1,3 +1,20 @@
+/*
+*
+*    Триангуляция только выпуклых многоугольников!
+*    Память выделяется только под несколько интов
+*    в fvertex элементы начинаются с №1 (а не с 0)
+*    Границы вывода заданы по дефолту, чтобы избежать возможных проблем с памятью
+*    ФУНКЦИЮ RAST_TR НЕ ТРОГАТЬ! Она работает сейчас как надо!
+*
+*    TODO
+*       1. Освещение по фонгу(? при возможности
+*       2. "Интерфейс"
+*	    2.1 Перемещение центра координат
+*	    2.2 Восстановление исходного масштаба
+*	    2.3 Текст(?)
+*       3. в Функцию ReadFace реализовать так, чтобы она читала каждую последовательность f/f/f пока не встретит '/0', и уже с ней работала
+*
+*/
 #include<stdio.h>
 #include<math.h>
 #include<ctype.h>
@@ -8,72 +25,69 @@
 #include<SDL/SDL.h>
 #include<unistd.h>
 
-int ntr, iaux, ipixmin, ipixmax, ipixleft, ipixright, ipix,
-    jpix, jtop, jbot, j_old, l, jl, topcode[3], poly[NPOLY],
-    npoly, lower[NSCREEN], upper[NSCREEN],
-    low[NSCREEN], up[NSCREEN], trset[NNTRSET], ntrset, isize = sizeof(int);
+int ntr = 0, nvr, lightNOW = 0;
 double v11, v12, v13, v21, v22, v23, v32, v33, v43, d, c1, c2,
-       Xrange, Yrange, Xvp_range, Yvp_range, Xmin, Xmax, Ymin, Ymax,
-       deltaX, deltaY, denom, slope, Xleft[3], Xright[3], Yleft[3], Yright[3];
+       Xrange, Yrange, Xmin, Xmax, Ymin, Ymax,
+       deltaX, deltaY, xO = 0, yO = 0, zO = 0, onetime = 1,
+       Xvp_range, Yvp_range;
+const double Xvp_min = 10, Xvp_max = 450, Yvp_min = 10, Yvp_max = 450;
 
 double eps = 1.e-5, meps = -1.e-5, oneminus = 1 - 1.e-5, oneplus = 1 + 1.e-5;
-/*struct ver {
-    double x,y,z;
-    int *connect;
-};
 
-struct ver vertex[NVERTEX], *pvertex;
+int *zbuffer;
 
-struct {
-    int A,B,C;
-    double a,b,c,h;
-} triangle[NTRIANGLE], *ptriangle;
+struct color Button1C = {255, 0, 0};
+struct color Button2C = {255, 0, 0};
+struct color Black = {255, 255, 255};
 
-struct node {
-    int jtr;
-    struct node *next;
-} *pnode;
-
-struct {
-    int tr_cov;
-    double tr_dist;
-    struct node *start;
-} Screen[NSCREEN][NSCREEN], *pointer;
-*/
-
-struct v2D{
-    int x,y;
-};
-
-struct v3D {
-    double x,y,z;
-} lightdir = {0,0,1};
-
-struct ver vertex[NVERTEX], *pvertex, fvertex[NVERTEX];
-struct tr triangle[NTRIANGLE], *ptriangle;
-struct node *pnode;
-struct scr ScreeN[NSCREEN][NSCREEN], *pointer;
-
-FILE *fpin;
+struct ver *vertex, *pvertex, *fvertex;
+struct tr *triangle, *ptriangle;
+struct v3D lightdir = {0,0,1};
+FILE *fpin, *fpout;
 
 void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ);
-void polydiv();
+void polydiv(int clockwise);
 void update();
 void check();
 void update();
 void border_draw(double XMIN, double XMAX, double YMIN, double YMAX);
 void drawtr();
-void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, double yMIN, double yMAX);
-void read_vertex();
-void scale_calc(double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max);
-void read_faces();
+void extra_init();
+void calc_vertex();
+void scale_calc();
+void calc_faces();
 void tr_add();
 void line_and_pix();
-void read_and_draw();
+void read_and_draw(double rho, double theta, double phi, double scale);
 void Rast_Tr(struct v2D A, struct v2D B, struct v2D C, struct color Cl);
 void swap(double *x, double *y);
 void swapS(struct v2D *A, struct v2D *B);
 void normalize(struct ver vertex);
+void ReadVertex(char *str);
+void ReadFace(char *str);
+void read_faces();
+void calc_triangles();
+void SPolyDiv(int *poly, int npoly);
+void RememberVertex(int A, int B, int C, int Ntr);
+void FinalizeMe();
+void ReadNorm(char *str, int num);
+void DrawButtons();
+void RastRect(int x1, int y1, int x2, int y2, struct color Cl);
+
+
+void DrawButtons()
+{
+    //Button 1
+    DrawRect(Xvp_max, Yvp_min, Xvp_max + 20, Yvp_min + 20, Black, 2);
+    RastRect(Xvp_max, Yvp_min, Xvp_max + 20, Yvp_min + 20, Button1C);
+
+    //Button 2
+    DrawRect(Xvp_max + 30, Yvp_min, Xvp_max + 50, Yvp_min + 20, Black, 2);
+    RastRect(Xvp_max + 30, Yvp_min, Xvp_max + 50, Yvp_min + 20, Button2C);
+
+    //screen
+    DrawRect(Xvp_min, Yvp_min, Xvp_max, Yvp_max, Black, 1);
+}
 
 void swap(double *x, double *y)
 {
@@ -94,147 +108,230 @@ void swapS(struct v2D *A, struct v2D *B)
     yaux = A->y;
     A->y = B->y;
     B->y = yaux;
+
+    double aux;
+    aux = A->depth;
+    A->depth = B->depth;
+    B->depth = aux;
 }
 
+void RastRect(int x1, int y1, int x2, int y2, struct color Cl)
+{
+    while (x1 != x2 && y1 != y2) {
+        x1 += 1; y1 += 1; x2 -= 1; y2 -= 1;
+        DrawRect(x1, y1, x2, y2, Cl, 1);
+    }
+}
 
 void Rast_Tr(struct v2D A, struct v2D B, struct v2D C, struct color Cl)
 {
-    //double xA, yA, zA, xB, yB, zB, xC, yC, zC;
     if (A.y == B.y && A.y == C.y) return;
-
-    //if (vertex[A].y > vertex[B].y) swapS(A,B);
-    //if (vertex[A].y > vertex[C].y) swapS(A,C);
-    //if (vertex[B].y > vertex[C].y) swapS(B,C);
 
     if (A.y > B.y) swapS(&A,&B);
     if (A.y > C.y) swapS(&A,&C);
     if (B.y > C.y) swapS(&B,&C);
 
-    //xA = vertex[A].x; xB = vertex[B].x; xC = vertex[C].x;
-    //yA = vertex[A].y; yB = vertex[B].y; yC = vertex[C].y;
-    //zA = vertex[A].z; zB = vertex[B].z; zC = vertex[C].z;
+    int total_height = C.y - A.y, i, second_half, j, idx, segment_height;
+    float alpha, beta, phi;
+    double xI, yI, zI, xJ, yJ, zJ, Pz, Px, Py;
 
-    //moveto(A.x, A.y);
-    //lineto(B.x, B.y); lineto(C.x, C.y); lineto(A.x, A.y);
-    int total_height = C.y - A.y;
+    for (i = 0; i <= total_height; ++i) {
+        second_half = i > B.y - A.y || B.y == A.y;
+        segment_height = second_half ? C.y - B.y : B.y - A.y;
 
+        alpha = (float)(i) / total_height;
+        beta = (float)(i - (second_half ? B.y - A.y : 0)) / segment_height;
 
-    for (int i = 0; i <= total_height; ++i) {
-        int second_half = i > B.y - A.y || B.y == A.y;
-        int segment_height = second_half ? C.y - B.y : B.y - A.y;
+        xI = alpha * C.x + A.x * (1 - alpha);
+        yI = alpha * C.y + A.y * (1 - alpha);
+	zI = alpha * C.depth + A.depth * (1 - alpha);
 
-        float alpha = (float)(i) / total_height;
-        float beta = (float)(i - (second_half ? B.y - A.y : 0)) / segment_height;
-        double xI = alpha * C.x + A.x * (1 - alpha);
-        double yI = alpha * C.y + A.y * (1 - alpha);
-        double xJ = second_half ? (beta * C.x + B.x * (1 - beta)) : beta * B.x + A.x * (1 - beta);
-        double yJ = second_half ? (beta * C.y + B.y * (1 - beta)) : beta * B.y + A.y * (1 - beta);
+        xJ = second_half ? (beta * C.x + B.x * (1 - beta)) : beta * B.x + A.x * (1 - beta);
+        yJ = second_half ? (beta * C.y + B.y * (1 - beta)) : beta * B.y + A.y * (1 - beta);
+        zJ = second_half ? (beta * C.depth + B.depth * (1 - beta)) : beta * B.depth + A.depth * (1 - beta);
 
         if (xI > xJ) {
             swap(&xI, &xJ); swap(&yI, &yJ);
         }
-        for (int j = xI; j <= xJ; ++j)
-            drawpix(j, A.y + i, Cl);//mappixel(j, A.y + i);
+
+        for (j = xI; j <= xJ; ++j) {
+            if (j <= (Xvp_min) || j >= (Xvp_max) || (A.y + i) <= (Yvp_min) || (A.y + i) >= (Yvp_max) ) //будем считать, что окно вывода [50 350 50 350]
+                continue;
+	    phi = xJ == xI ? 1. : (float)(j-xI) / (float)(xJ-xI);
+	    Px = xI + (xJ - xI) * phi;
+	    Py = yI + (yJ - yI) * phi;
+	    Pz = zI + (zJ - zI) * phi;
+	    //idx = Px + 320 * Py;
+	    idx = j + Yvp_range * (A.y + i);
+	    if ((zbuffer + idx) == NULL) { printf("Buffer memory error\n"); continue; }
+	    else if (*(zbuffer + idx) > Pz && *(zbuffer + idx) <= 20000) { //!*(zbuffer + idx) <= 20000 очень важный по-видимому момент, без него SegFault выдавало
+                drawpix(j, A.y + i, Cl);
+//		   printf("idx = %d, Pz = %lf, zbuffer + idx = %d \n", idx, Pz, *(zbuffer + idx));
+		    *(zbuffer + idx) = Pz;
+		//else {
+		    //
+
+		//}
+	     //   drawpix(Px, Py, Cl);
+	    }
+        }
     }
+
+//    update_render();
 }
 
 int main(int argc, char *argv[])
 {
-    int i, running = 1, rotate = 0, lightNOW = 0, xcountpos = 0, xcountneg = 0, ycountpos = 0, ycountneg = 0;
-    double Xvp_min, Xvp_max, Yvp_min, Yvp_max, rho = 3000, theta = 45, phi = 0, Ph = 0, T = 180;
-    char ch;
+    int i, running = 1, autoROT = 0, rotate = 0, scaleON = 0,  xcountpos = 0, xcountneg = 0, ycountpos = 0, ycountneg = 0, yscalepos = 0, yscaleneg = 0;
+    double rho = 3000, theta = 0, phi = 0, Ph = 0, T = 180, scale = 1, Xmaxe, Ymine, Xmine, Ymaxe;
     int dx, dy, x, y;
 
-
-    init_viewport(&Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
-    init(640,480,8);
-    //opengraph();
-    //bar(Xvp_max + 10, Yvp_min, Xvp_max + 60, Yvp_min + 50);
-//test triangle
-    struct v2D A = {Xvp_max + 50, Yvp_min}, B = {Xvp_max + 60, Yvp_min + 10}, C = {Xvp_max + 80, Yvp_min + 10};
-
-    //Rast_Tr(A,B,C,2);
+    init_viewport();
+    init(1000,470,32);
 
     /* Открытие файла*/
     if (argc != 2 || (fpin = fopen(argv[1], "r")) == NULL)
         printf("Input file is not correcly specified");
     ntr = 0;
+    nvr = 1;
+    char string[100];
+    int onemoretime = 1, nv = 0;
+    while (!feof(fpin)) {
+        fgets(string, sizeof(string), fpin);
+        string[strlen(string) - 1] = '\0';
+        switch (string[0]) {
+            case 'v': if (string[1] == ' ') {
+                          ReadVertex(string);
+		      } else if (string[1] == 'n') {
+			  ++nv; //счетчик вершин
+		          ReadNorm(string, nv);
+		      } else if (onemoretime && string[1] == 't') { //когда вершины для чтения кончатся, их нужно инициализировать для дальнейшего чтения
+                          vertex = (struct ver*)malloc((nvr + 1) * sizeof(struct ver));
+                          for (i = 1; i <= nvr; ++i) {
+                              (vertex + i)->connect = (int *)malloc(100 * sizeof(int));
+                              *((vertex + i)->connect) = 0;
+                          }
+		          onemoretime = 0;
+		      }
+                      break;
+            case 'f': check(); ReadFace(string); break;
+            default: continue; break;
+        }
+    }
 
-    read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
-//    clearscreen();
+    //read_vertex();
+    //read_faces();
+
+    read_and_draw(rho, theta, phi, scale);
+    read_and_draw(rho, theta, phi, scale);
+
+    int xscaleneg = 0, xscalepos = 0;
+    SDL_Event event;
     while (running) {
-        SDL_Event event;
-
-	if (lightNOW) {
+        //Xmax = Xmax * d + c1; Xmin = Xmin * d + c1; Ymax = Ymax * d + c2; Ymin = Ymin * d + c2;
+/*	if (lightNOW) {
 	    T += 1; Ph += 1;
-            update();
+  //          update();
 	    double factor = atan(1.0) / 45.0;
 	    lightdir.x = sin(T * factor) * cos(Ph * factor);
     	    lightdir.y = sin(T * factor) * sin(Ph * factor);
             lightdir.z = cos(T * factor);
 
-            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+            read_and_draw(rho, theta, phi, scale);
 	    sleep(0.9);
 	    sleep(0.9);
 	    sleep(0.9);
 	}
+*/	     while (autoROT) {
+                theta += 1; phi += 1;
+		read_and_draw(rho, theta, phi, scale);
+                DrawButtons(Button1C, Button2C);
+                if (SDL_PollEvent(&event)) {
+                    if (event.type == SDL_MOUSEBUTTONDOWN && event.button.x > Xvp_max && event.button.x <= Xvp_max + 20 && event.button.y > Yvp_min && event.button.y < Yvp_min + 20) {
+                        autoROT = 0;
+                        Button1C.r = 255; Button1C.g = 0;
+			read_and_draw(rho, theta, phi, scale);
+			read_and_draw(rho, theta, phi, scale);
+
+                    }
+                }
+	     }
 
         while (SDL_PollEvent(&event)) {
+	    Xmaxe = Xmax * d + c1; Xmine = Xmin * d + c1; Ymaxe = Ymax * d + c2; Ymine = Ymin * d + c2;
 	    switch (event.type) {
 		case SDL_QUIT:
+		    FinalizeMe();
                     running = 0;
-		    closegraph();
-		    return 0;
-                    break;
+		    break;
                 case SDL_MOUSEBUTTONDOWN:
                     x = event.button.x;
                     y = event.button.y;
-                    if (x > Xvp_min && x < Xvp_max && y > Yvp_min && y < Yvp_max / 2)
+
+                    if (x > Xmine && x < Xmaxe && y > Ymine && y < Ymaxe  && event.button.button == SDL_BUTTON_LEFT)
                         rotate = 1;
-                    if (x > Xvp_min && x < Xvp_max / 2 && y > Yvp_min && y < Yvp_max)
-                        rotate = 1;
-                    if (x > Xvp_max && x < Xvp_max + 50 && y > Yvp_min && y < Yvp_min + 50)
-                        lightNOW = 1;
+		    if (x > Xvp_max + 30 && x < Xvp_max + 50 && y > Yvp_min && y < Yvp_min + 20) {
+		//	lightNOW = !lightNOW;
+			xO += 50; //yO += 5; zO += 5;
+			Button2C.r = Button2C.r == 255 ? 0 : 255;
+			Button2C.g = Button2C.g == 255 ? 0 : 255;
+                        read_and_draw(rho, theta, phi, scale);
+		    }
+
+		    if (event.button.button == SDL_BUTTON_RIGHT && x < Xmaxe && x > Xmine && y > Ymine && y < Ymaxe) {
+			scaleON = 1;
+		    }
+                    if (x > Xvp_max && x <= Xvp_max + 20 && y > Yvp_min && y < Yvp_min + 20) {
+                        autoROT = 1;
+                        Button1C.r = 0; Button1C.g = 255;
+                    }
+
+		    read_and_draw(rho, theta, phi, scale);
+
                     break;
                 case SDL_MOUSEBUTTONUP:
                     rotate = 0;
+		    scaleON = 0;
                     break;
                 case SDL_MOUSEMOTION:
-                    if (rotate && event.motion.x < Xvp_max && event.motion.y < Yvp_max) {
-                        dx = event.motion.xrel;
+                    if (scaleON && event.motion.x < Xmaxe && event.motion.y < Ymaxe) {
                         dy = event.motion.yrel;
-                        if (dy > 0) ycountpos++;
-                        if (dy < 0) ycountneg++;
-                        if (dx > 0) xcountpos++;
-                        if (dx < 0) xcountneg++;
+			dx = event.motion.xrel;
+
+                        if (dy < 0) ++yscaleneg; if (dy > 0) ++yscalepos;
+			if (dx < 0) ++xscaleneg; if (dx > 0) ++xscalepos;
+
+                        if (yscalepos == 2) {
+                            rho += 30; read_and_draw(rho, theta, phi, scale);
+			    yscalepos = 0;
+                        }
+
+                        if (yscaleneg == 2) {
+                            rho -= 30; read_and_draw(rho, theta, phi, scale);
+			    yscaleneg = 0;
+                        }
+                    }
+                    if (rotate && event.motion.x < Xmaxe && event.motion.y < Ymaxe) {
+                        dx = event.motion.xrel; dy = event.motion.yrel;
+                        if (dy > 0) ycountpos++; if (dy < 0) ycountneg++;
+                        if (dx > 0) xcountpos++; if (dx < 0) xcountneg++;
 
                         if (ycountpos == 2) {
-                            phi += 1;
-                            update();
-                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            phi += 1; read_and_draw(rho, theta, phi, scale);
                             ycountpos = 0;
                         }
                         if (ycountneg == 2) {
-                            phi -= 1;
-                            update();
-                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            phi -= 1; read_and_draw(rho, theta, phi, scale);
                             ycountneg = 0;
                         }
                         if (xcountpos == 2) {
-                            theta +=1;
-                            update();
-                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            theta +=1; read_and_draw(rho, theta, phi, scale);
                             xcountpos = 0;
                         }
                         if (xcountneg == 2) {
-                            theta -= 1;
-                            update();
-                            read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
+                            theta -= 1; read_and_draw(rho, theta, phi, scale);
                             xcountneg = 0;
                         }
-
-                        //update();
-                        //read_and_draw(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
 
                         break;
                     }
@@ -244,83 +341,157 @@ int main(int argc, char *argv[])
     }
 }
 
-/*void trianglesegment(struct tr triangle)
-{
-    double xA, yA, zA, xB, yB, zB, xC, yC, zC;
 
-    xA = vertex[triangle.A].x; yA = vertex[triangle.A].y; zA = vertex[triangle.A].z;
-    xB = vertex[triangle.B].x; yB = vertex[triangle.B].y; zB = vertex[triangle.B].z;
-    xC = vertex[triangle.C].x; yC = vertex[triangle.C].y; zC = vertex[triangle.C].z;
-
-}*/
 void check()
 {
    printf("checkpoint\n");
-
 }
 
 void update()
 {
     int i;
-
-    //delay(15);
-    //cleardevice();
     clearscreen();
-    check();
-    for (i = 0; vertex[i].connect != NULL; ++i)
-        free(vertex[i].connect);
-
-    for (ipix = 0; ipix < NSCREEN; ++ipix)
-        for (jpix = 0; jpix < NSCREEN; ++jpix)
-            free(ScreeN[ipix][jpix].start);
-    ntr = 0;
-    fseek(fpin, 0L, SEEK_SET);
+    //if (zbuffer != NULL)
+    //    free(zbuffer);
+    for (i = 0; i < (Xvp_range + 1) * (Yvp_range + 1); ++i)
+        if ( (zbuffer + i) != NULL)
+	    *(zbuffer + i) = 20000;
 
 }
 
-void drawsegment(double xP, double yP, double zP, double xQ, double yQ, double zQ)
+
+void swapI(int *x, int *y)
 {
-    moveto((int)(d * xP / zP + c1), (int)(yP * d / zP + c2));
-    lineto((int)(xQ * d / zQ + c1), (int)(yQ * d / zQ + c2));
+    int aux;
+    aux = *x;
+    *x = *y;
+    *y = aux;
 }
 
+
+void Rast_Guro(int n, struct v2D t0, struct v2D t1, struct v2D t2)
+{
+    struct color Cl, ClJ, ClI;
+    double intensity, I1, I2, I3, IB, IA, IP;
+    float gamma, Pz;
+    int A = triangle[n].A, B = triangle[n].B, C = triangle[n].C, idx;
+
+    if (t0.y > t1.y) {swapS(&t0,&t1); swapI(&A,&B);}
+    if (t0.y > t2.y) {swapS(&t0,&t2); swapI(&A,&C);}
+    if (t1.y > t2.y) {swapS(&t1,&t2); swapI(&B,&C);}
+
+    int total_height = t2.y - t0.y;
+
+    I1 = intensity = (vertex + A)->a * lightdir.x + (vertex + A)->b * lightdir.y + (vertex + A)->c * lightdir.z;
+    struct color Cl1 = {255 * intensity, 255 * intensity, 255 * intensity};
+
+    I2 = intensity = (vertex + B)->a * lightdir.x + (vertex + B)->b * lightdir.y + (vertex + B)->c * lightdir.z;
+    struct color Cl2 = {255 * intensity, 255 * intensity, 255 * intensity};
+
+    I3 = intensity = (vertex + C)->a * lightdir.x + (vertex + C)->b * lightdir.y + (vertex + C)->c * lightdir.z;
+    struct color Cl3 = {255 * intensity, 255 * intensity, 255 * intensity};
+
+    int second_half, segment_height;
+   /* for (int i = 0.; i <= total_height; ++i) {
+        second_half = i > t1.y - t0.y || t1.y == t0.y;
+	IA = I1 * ()
+    }*/
+   for (int i = 0; i <= total_height; ++i) {
+        second_half = i > t1.y - t0.y || t1.y == t0.y;
+        segment_height = second_half ? t2.y - t1.y : t1.y - t0.y;
+
+        float alpha = (float)(i) / total_height;
+        float beta = (float)(i - (second_half ? t1.y - t0.y : 0)) / segment_height;
+
+        double xI = alpha * t2.x + t0.x * (1 - alpha);
+        double yI = alpha * t2.y + t0.y * (1 - alpha);
+	double zI = alpha * t2.depth + t0.depth * (1 - alpha);
+
+        double xJ = second_half ? (beta * t2.x + t1.x * (1 - beta)) : beta * t1.x + t0.x * (1 - beta);
+        double yJ = second_half ? (beta * t2.y + t1.y * (1 - beta)) : beta * t1.y + t0.y * (1 - beta);
+	double zJ = second_half ? (beta * t2.depth + t1.depth * (1 - beta)) : beta * t1.depth + t0.depth * (1 - beta);
+
+        if (xI > xJ) {
+            swap(&xI, &xJ); swap(&yI, &yJ);
+        }
+        IB = second_half ? I1 * (yJ - t1.y) / (t2.y - t1.y) + I2 * (t2.y - yJ) / (t2.y - t1.y) : I1 * (yJ - t0.y) / (t1.y - t0.y) + I2 * (t1.y - yJ) / (t1.y - t0.y);
+        IA = I1 * (yI - t0.y) / (t2.y - t0.y) + I2 * (t2.y - yI) / (t2.y - t0.y);
+
+        for (int j = xI; j <= xJ; ++j) {
+            if (j <= Xvp_min || j >= Xvp_max || t0.y + i <= Yvp_min || t0.y + i >= Yvp_max) //будем считать, что окно вывода [50 350 50 350]
+                continue;
+            IP = xJ == xI ? IA : IA * (float)(xJ - j) / (float)(xJ - xI) + IB * (float)(j - xI) / (float)(xJ - xI);
+            Cl.r = 255 * IP; Cl.g = 255 * IP; Cl.b = 255 * IP;
+
+            gamma = xJ == xI ? 1. : (float)(j - xI) / (float)(xJ - xI);
+            Pz = zI + (zJ - zI) * gamma;
+            idx = j + Yvp_range * (t0.y + i);
+
+            if (*(zbuffer + idx) > Pz) {
+                drawpix(j, t0.y + i, Cl);
+                *(zbuffer + idx) = Pz;
+            }
+
+        }
+       /* for (int j = xI; j <= xJ; ++j) {
+            if (j <= Xvp_min || j >= Xvp_max || t0.y + i <= Yvp_min || t0.y + i >= Yvp_max) //будем считать, что окно вывода [50 350 50 350]
+                continue;
+
+            gamma = xJ == xI ? 1. : (float)(j - xI) / (float)(xJ - xI);
+            Cl.r = ClI.r * (1 - gamma) + ClJ.r * gamma;
+            Cl.g = ClI.g * (1 - gamma) + ClJ.g * gamma;
+            Cl.b = ClI.b * (1 - gamma) + ClJ.b * gamma;
+	    Pz = zI + (zJ - zI) * gamma;
+	    idx = j + Yvp_range * (t0.y + i);
+
+	    if (*(zbuffer + idx) > Pz && Cl.r > 0 && Cl.g > 0 && Cl.b > 0) {
+	        drawpix(j, t0.y + i, Cl);
+		*(zbuffer + idx) = Pz;
+	    }
+	    //if (Cl.r > 0 && Cl.g > 0 && Cl.b > 0)
+            //    drawpix(j, t0.y + i, Cl);
+        }*/
+    }
+
+}
 void drawtr()
 {
-    int i, XA, YA, XB, YB, XC, YC, col;
-    double xA, yA, zA, xB, yB, zB, xC, yC, zC,a,b,c,r,n, intensity;
-    //struct v3D light = {0, 0, 1};
+    int i, XA, YA, XB, YB, XC, YC, A, B, C;
+    double a, b, c, h, intensity, depth;
+
     for (i = 0; i < ntr; ++i) {
-
-        xA = vertex[triangle[i].A].x; yA = vertex[triangle[i].A].y; zA = vertex[triangle[i].A].z;
-        xB = vertex[triangle[i].B].x; yB = vertex[triangle[i].B].y; zB = vertex[triangle[i].B].z;
-        xC = vertex[triangle[i].C].x; yC = vertex[triangle[i].C].y; zC = vertex[triangle[i].C].z;
-
-        a = yA * (zB - zC) - yB * (zA - zC) + yC * (zA - zB);
-        b = -(xA * (zB - zC) - xB * (zA - zC) + xC * (zA - zB));
-        c =  xA * (yB - yC) - xB * (yA - yC) + xC * (yA - yB);
-        r = sqrt(a*a + b*b + c*c); if (r == 0) r = eps;//r = r == 0 ? eps : r;
-        a /= r; b /= r; c /= r;
+	a = triangle[i].a; b = triangle[i].b; c = triangle[i].c; h = triangle[i].h;
+        A = triangle[i].A; B = triangle[i].B; C = triangle[i].C;
 
         intensity = lightdir.x * a + lightdir.y * b + lightdir.z * c;
-        if (intensity > 0) {
+        if (h > 0 && intensity > 0) {
         struct color Cl = {255 * intensity, 255 * intensity, 255 * intensity};
 
-        XA = (int)(vertex[triangle[i].A].x * d / vertex[triangle[i].A].z + c1);
-	YA = (int)(vertex[triangle[i].A].y * d / vertex[triangle[i].A].z + c2);
-	XB = (int)(vertex[triangle[i].B].x * d / vertex[triangle[i].B].z + c1);
-	YB = (int)(vertex[triangle[i].B].y * d / vertex[triangle[i].B].z + c2);
-	XC = (int)(vertex[triangle[i].C].x * d / vertex[triangle[i].C].z + c1);
-	YC = (int)(vertex[triangle[i].C].y * d / vertex[triangle[i].C].z + c2);
-	struct v2D A = {XA,YA}, B = {XB, YB}, C = {XC, YC};
-	Rast_Tr(A,B,C,Cl);
+        XA = (int)( (vertex + A)->x * d / (vertex + A)->z + c1);
+	YA = (int)( (vertex + A)->y * d / (vertex + A)->z + c2);
+	XB = (int)( (vertex + B)->x * d / (vertex + B)->z + c1);
+	YB = (int)( (vertex + B)->y * d / (vertex + B)->z + c2);
+	XC = (int)( (vertex + C)->x * d / (vertex + C)->z + c1);
+	YC = (int)( (vertex + C)->y * d / (vertex + C)->z + c2);
+        int outA = 0, outB = 0, outC = 0;
+
+        if ((XA <= Xvp_min || XA >= Xvp_max) || (YA <= Yvp_min || YA >= Yvp_max)) outA = 1;
+        if ((XB <= Xvp_min || XB >= Xvp_max) || (YB <= Yvp_min || YB >= Yvp_max)) outB = 1;
+        if ((XC <= Xvp_min || XC >= Xvp_max) || (YC <= Yvp_min || YC >= Yvp_max)) outC = 1;
+        if (outA && outB && outC) continue;
+
+        depth = (vertex + A)->z; struct v2D A = {XA, YA, depth};
+
+        depth = (vertex + B)->z; struct v2D B = {XB, YB, depth};
+
+        depth = (vertex + C)->z; struct v2D C = {XC, YC, depth};
+
+        if (!lightNOW) Rast_Tr(A,B,C,Cl);
+//	check();
+ //       printf("Triangle (%d,%d)(%d, %d)(%d , %d) has been drown!\n", XA, YA, XB, YB, XC, YC);
+	if (lightNOW) Rast_Guro(i, A, B, C);
         }
-       /* moveto(XA, YA);
-	lineto(XB, YB);
-        lineto(XC, YC);
-	lineto(XA, YA);
-	floodfill((XA + XB + 2 * XC) / 4, (YA + YB + 2 * YC) / 4, RED);*/
     }
-    //update();
 
 }
 
@@ -335,115 +506,58 @@ void border_draw(double XMIN, double XMAX, double YMIN, double YMAX)
     moveto((XMIN + XMAX) / 2, YMIN); lineto((XMIN + XMAX) / 2, YMIN);
 }
 
-
-void polydiv()
-{
-    int count, i1, i2, i0, ii, imin;
-    double diag, min_diag;
-    count = 1;
-    while (npoly > 2) {
-        min_diag = BIG;
-        for (i1 = 0; i1 < npoly; ++i1) {
-            i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
-            i2 = (i1 == npoly - 1 ? 0 : i1 + 1);
-            if (counter_clock(i0, i1, i2, &diag, 0) && diag < min_diag) {
-                min_diag = diag;
-                imin = i1;
-            }
-        }
-
-        i1 = imin;
-        i0 = (i1 == 0 ? npoly - 1 : i1 - 1);
-        i2 = (i1 == npoly - 1 ? 0 : i1 + 1);
-
-        /* Запись треугольника в массив triangle и ассоциация его с пикслями */
-        counter_clock(i0, i1, i2, &diag, count++);
-        --npoly;
-        for (ii = i1; ii <= npoly; ++ii)
-            poly[ii] = poly[ii + 1];
-     }
-
-}
-
-void extra_init(double rho, double theta, double phi, double xMIN, double xMAX, double yMIN, double yMAX)
+void clear(char *str)
 {
     int i;
-
-    /* Инициализируем экранную матрицу*/
-    for (ipix = 0; ipix < NSCREEN; ++ipix)
-        for(jpix = 0; jpix < NSCREEN; ++jpix) {
-            pointer = &(ScreeN[ipix][jpix]);
-            pointer->tr_cov = -1; pointer->tr_dist = BIG;
-            pointer->start = NULL;
-        }
-
-    /* Считаем матрицу поворота*/
-    coeff(rho, theta, phi);
-
-    /* задаем область вывода */
-    //border_draw(xMIN, xMAX, yMIN, yMAX);
-
-    /* Инициализируем массив вершин */
-    for (i = 0; i < NVERTEX; ++i)
-        vertex[i].connect = NULL;
-
-
+    for (i = 0; i < strlen(str); ++i)
+        str[i] = '\0';
 }
 
-void read_vertex()
+void ReadFace(char *str)
 {
-    int i, *ptr;
-    char ch;
-    double x, y, z, xO, yO, zO, xe, ye, ze, X, Y;
+    char numA[10], numB[10], numC[10], numD[10], num[10], part[30][150];
+    int j = 0, i = 2, k = 0, A, B, C, D, poly[30];
+    int IfNoSpaceAtTheEndOfTheLine = 1;
 
-    fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
-    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
-    while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
-        ungetc(ch,fpin);
-        //reint(&i); reflo(&x); reflo(&y); reflo(&z);
-        fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
-        if (i < 0 || i >= NVERTEX )
-            error("Неверный номер вершины \n");
-        //преобразуем координаты (через матрицу поворота)
-        viewing(x - xO, y - yO, z - zO, &xe, &ye, &ze);
-        if (ze <= eps)
-            error("");
-
-        //находим max и min для масштабирования в наше окно вывода
-        X = xe / ze; Y = ye / ze;
-        if (X < Xmin) Xmin = X; if (X > Xmax) Xmax = X;
-        if (Y < Ymin) Ymin = Y; if (Y > Ymax) Ymax = Y;
-
-        vertex[i].x = xe; vertex[i].y = ye; vertex[i].z = ze;
-        vertex[i].connect = ptr = (int *)malloc(sizeof(int));
-        if (ptr == NULL)
-            error("Memory allocation error");
-        *ptr = 0;
+    while (1 == 1) {
+        if (str[i] == ' ') {
+            part[k][j] = '\0';
+            if (str[i + 1] == '\0') break;
+            ++i; ++k; j = 0;
+            continue;
+        } else if (str[i] == '\0') {
+            part[k][j] = '\0';
+            break;
+        }
+        part[k][j] = str[i];
+        ++j; ++i;
     }
 
+    for (i = 0; i <= k; ++i) {
+        j = 0;
+        while (part[i][j] != '/') {
+            num[j] = part[i][j];
+            ++j;
+        }
+        poly[i] = atoi(num);
+//        clear(num);
+	while (j >= 0) {
+	    num[j] = '\0';
+	    --j;
+        }
+    }
+
+    SPolyDiv(poly, k);
 }
 
-void scale_calc(double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max)
+
+/*void read_faces()
 {
-    double fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre;
-
-    Xrange = Xmax - Xmin; Yrange = Ymax - Ymin;
-    Xvp_range = Xvp_max - Xvp_min; Yvp_range = Yvp_max - Yvp_min;
-    fx = Xvp_range / Xrange; fy = Yvp_range / Yrange;
-    d = (fx < fy) ? fx : fy;
-    Xcentre = (Xmin + Xmax) / 2; Ycentre = (Ymax + Ymin) / 2;
-    Xvp_centre = (Xvp_min + Xvp_max) / 2; Yvp_centre = (Yvp_min + Yvp_max) / 2;
-    c1 = Xvp_centre - d * Xcentre; c2 = Yvp_centre - d * Ycentre;
-    deltaX = oneplus * Xrange / NSCREEN; // = Xrange / Nscreen
-    deltaY = oneplus * Yrange / NSCREEN;
-
-}
-
-void read_faces()
-{
-    int i, ii;
+    int i;
     char ch;
-    double diag;
+
+//	triangle = (struct tr *)malloc(NTRIANGLE * sizeof(struct tr));
+
     while (!isspace(getc(fpin)))
         ;
 
@@ -459,154 +573,242 @@ void read_faces()
         if (npoly == 1)
             error("Только одна вершина\n");
 
-        if (npoly == 2) {
-           add_linesegment(poly[0], poly[1]);
-           continue;
-        }
 
-        //проверяем, является ли треугольник задним
-        if (!(counter_clock(0, 1, 2, &diag, 0)))
-            continue;
-
-        //записываем в поле connect информацию об соединениях вершин -> формируем отрезки PQ
-        for (i = 1; i <= npoly; ++i) {
-            ii = i % npoly;
-
-            if (vertex[abs(poly[ii])].connect == NULL)
-               error("Неопределенная вершина \n");
-
-            if (poly[ii] < 0)
-                poly[ii] = abs(poly[ii]);
-            else add_linesegment(poly[i - 1], poly[ii]);
-        }
-
-        /* Разбиение треугольника на полигоны */
-        polydiv();
+	simple_polydiv();
     }
-//!//    fclose(fpin);
-}
 
-void tr_add()
+    fclose(fpin);
+}*/
+
+void SPolyDiv(int *poly, int npoly)
 {
-    for (ipix = 0; ipix < NSCREEN; ++ipix)
-        for (jpix = 0; jpix < NSCREEN; ++jpix) {
-            pointer = &(ScreeN[ipix][jpix]);
+    int i0 = 0, i1 = 1, i2 = 2, A, B, C;
 
-            if ((*pointer).tr_cov >= 0) {
-                pnode = (struct node *)malloc(sizeof(struct node));
-                if (pnode == NULL)
-                    error("Memory alloc error #2\n");
+    while(i2 != npoly + 1) {
+        A = poly[i0], B = poly[i1], C = poly[i2];
 
-                pnode->jtr = pointer->tr_cov;
-                pnode->next = pointer->start;
-                pointer->start = pnode;
-            }
-        }
+        RememberVertex(A, B, C, ntr);
 
-}
+        if (triangle == NULL)
+            triangle = (struct tr*)malloc(sizeof(struct tr));
+        else
+            triangle = (struct tr*)realloc(triangle, (ntr + 1) * sizeof(struct tr));
 
-void line_and_pix()
-{
-    int P,Q, iconnect, *ptr, i, jtr, trnr;
-    double xQ, yQ, zQ, xP, yP, zP, XQ, YQ, XP, YP, Xlft, Xrght, Ylft, Yrght;
+        (triangle + ntr)->A = A; (triangle + ntr)->B = B; (triangle + ntr)->C = C;
+        ++ntr; ++i1; ++i2;
 
-    for (P = 0; P < NVERTEX; ++P) {
-        pvertex = vertex + P;
-        ptr = pvertex->connect;
-        if (ptr == NULL) continue;
-
-        xP = pvertex->x; yP = pvertex->y; zP = pvertex->z;
-        XP = xP / zP; YP = yP / zP;
-
-        for (iconnect = 1; iconnect <= *ptr; ++iconnect) {
-            Q = *(ptr + iconnect);
-            pvertex = vertex + Q;
-            xQ = pvertex->x; yQ = pvertex->y; zQ = pvertex->z;
-
-           //drawsegment(xP, yP, zP, xQ, yQ, zQ); //!
-
-            XQ = xQ / zQ; YQ = yQ / zQ;
-
-            /* Using screen list, we shall build the set of triangles
-                that may hide points of PQ */
-            if (XP < XQ || (XP == XQ && YP < YQ)) {
-                Xlft = XP;
-                Ylft = YP;
-                Xrght = XQ;
-                Yrght = YQ;
-            } else {
-                Xlft = XQ;
-                Ylft = YQ;
-                Xrght = XP;
-                Yrght = YP;
-            }
-            ipixleft = xwhole(Xlft); ipixright = xwhole(Xrght);
-
-            denom = Xrght - Xlft;
-            if (fabs(denom) <= eps)
-                denom = eps;
-
-            slope = (Yrght - Ylft) / denom;
-            jbot = jtop = ywhole(Ylft);
-
-            for (ipix = ipixleft; ipix <= ipixright; ++ipix) {
-                if (ipix == ipixright)
-                    jl = ywhole(Yrght);
-                else
-                    jl = ywhole(Ylft + (xreal(ipix + 1) - Xlft) * slope);
-
-                lower[ipix] = min2(jbot,jl); jbot = jl;
-                upper[ipix] = max2(jtop,jl); jtop = jl;
-            }
-
-            ntrset = 0;
-            for (ipix = ipixleft; ipix <= ipixright; ++ipix)
-                for (jpix = lower[ipix]; jpix <= upper[ipix]; ++jpix) {
-                    pointer = &(ScreeN[ipix][jpix]);
-                    pnode = pointer->start;
-                    while (pnode != NULL) {
-                        trnr = pnode->jtr;
-                        /* tnrn will be stored only if it is not yet present in array trset(triangle set)*/
-                        trset[ntrset] = trnr; /* sentinel*/
-
-                        jtr = 0;
-                        while (trset[jtr] != trnr)
-                            jtr++
-;
-                        if (jtr == ntrset) {
-                            ntrset++;
-                            if (ntrset == NNTRSET) error("Triangle set overflow\n");
-                        }
-                        pnode = pnode->next;
-                    }
-                }
-           //drawsegment(xP, yP, zP, xQ, yQ, zQ);
-           linesegment(xP, yP, zP, xQ, yQ, zQ, 0);
-        }
+        printf("Треугольник №%d / 2492 добавлен успешно!\n", ntr);
     }
 }
 
-void read_and_draw(double rho, double theta, double phi, double Xvp_min, double Xvp_max, double Yvp_min, double Yvp_max)
-{
-    /* Иниц. экранную матрицу, матрицу поворота, массив вершин, область вывода */
-    extra_init(rho, theta, phi, Xvp_min, Xvp_max, Yvp_min, Yvp_max);
 
+void extra_init()
+{
+
+    int i;
+    zbuffer = (int *)malloc((Xvp_range + 1)* (Yvp_range + 1)* sizeof(int));
+    for (i = 0; i < (Xvp_range + 1) * (Yvp_range + 1); ++i)
+            *(zbuffer + i) = 20000;
+}
+
+void ReadVertex(char *str)
+{
+//    char ch;
+    char numx[15], numy[15], numz[15];
+
+    int i = 2, j = 0;
+    while (str[i] != ' ') {
+        numx[j] = str[i];
+        ++i; ++j;
+    }
+    double x = atof(numx) * 100;
+
+    ++i; j = 0;
+    while (str[i] != ' ') {
+        numy[j] = str[i];
+        ++i; ++j;
+    }
+    double y = atof(numy) * 100;
+
+    ++i; j = 0;
+    while (str[i] != '\0') {
+        numz[j] = str[i];
+       ++i; ++j;
+    }
+    double z = atof(numz) * 100;
+
+/*    fscanf(fpin, "%lf %lf %lf", &xO, &yO, &zO);
+    while(skipbl(), ch = getc(fpin), ch != 'F' && ch != 'f') {
+        ungetc(ch,fpin);
+        fscanf(fpin, "%d %lf %lf %lf", &i, &x, &y, &z);
+        if (i < 0 || i >= NVERTEX )
+            error("Неверный номер вершины \n");*/
+//check();
+    if (fvertex != NULL)
+        fvertex = (struct ver *)realloc(fvertex, (nvr + 1) * sizeof(struct ver));
+    else fvertex = (struct ver *)malloc(2 * sizeof(struct ver));
+//check();
+        (fvertex + nvr)->x = x; (fvertex + nvr)->y = y; (fvertex + nvr)->z = z;
+        nvr++;
+   // }
+
+   /* for (i = 0; i < nvr; ++i) {
+	vertex[i].connect = (int *)malloc(100 * sizeof(int));
+	*(vertex[i].connect) = 0;
+    }*/
+}
+
+void ReadNorm(char *str, int num)
+{
+    char numx[15], numy[15], numz[15];
+
+    int i = 4, j = 0;
+    while (str[i] != ' ') {
+        numx[j] = str[i];
+        ++i; ++j;
+    }
+    double x = atof(numx);
+
+    ++i; j = 0;
+    while (str[i] != ' ') {
+        numy[j] = str[i];
+        ++i; ++j;
+    }
+    double y = atof(numy);
+
+    ++i; j = 0;
+    while (str[i] != '\0') {
+        numz[j] = str[i];
+       ++i; ++j;
+    }
+    double z = atof(numz);
+
+    (fvertex + num)->a = x; (fvertex + num)->b = y; (fvertex + num)->c = z;
+
+}
+
+void calc_vertex()
+{
+    int i;
+    double x, y, z, xe, ye, ze, X, Y;
+
+    Xmin = Ymin = BIG; Xmax = Ymax = -BIG;
+    for (i = 1; i <= nvr; ++i) {
+        x = (fvertex + i)->x; y = (fvertex + i)->y; z = (fvertex + i)->z;
+
+        //преобразуем координаты (через матрицу поворота)
+        viewing(x - xO, y - yO, z - zO, &xe, &ye, &ze);
+//        if (ze <= eps)
+//            continue;
+
+        //находим max и min для масштабирования в наше окно вывода
+        X = xe / ze; Y = ye / ze;
+        if (X < Xmin) Xmin = X; if (X > Xmax) Xmax = X;
+        if (Y < Ymin) Ymin = Y; if (Y > Ymax) Ymax = Y;
+
+        (vertex + i)->x = xe; (vertex + i)->y = ye; (vertex + i)->z = ze;
+//	printf("%lf %lf %lf\n", xe, ye, ze);
+    }
+ //   printf("endofinput\n");
+}
+
+void calc_ver2()
+{
+    int i, j, *ptr, Ntr;
+    double a, b, c, r;
+    for (i = 1; i <= nvr; ++i) {
+	a = 0; b = 0; c = 0;
+        ptr = (vertex + i)->connect;
+
+        Ntr = *ptr;
+
+        for (j = 1; j <= Ntr; ++j) {
+            a += (triangle + *(ptr + j) )->a;
+            b += (triangle + *(ptr + j) )->b;
+            c += (triangle + *(ptr + j) )->c;
+        }
+
+        r = sqrt(a*a + b*b + c*c);
+        a /= r; b /= r; c /= r;
+
+        (vertex + i)->a = a; (vertex + i)->b = b; (vertex + i)->c = c;
+    }
+
+}
+
+void calc_triangles()
+{
+    double xA, yA, zA, xB, yB, zB, xC, yC, zC, a, b, c, h, r;
+    int i, A, B, C;
+    for (i = 0; i < ntr; ++i) {
+        A = (triangle + i)->A; B = (triangle + i)->B; C = (triangle + i)->C;
+
+	xA = (vertex + A)->x; yA = (vertex + A)->y; zA = (vertex + A)->z;
+        xB = (vertex + B)->x; yB = (vertex + B)->y; zB = (vertex + B)->z;
+        xC = (vertex + C)->x; yC = (vertex + C)->y; zC = (vertex + C)->z;
+
+        a = yA * (zB - zC) - yB * (zA - zC) + yC * (zA - zB);
+        b = -(xA * (zB - zC) - xB * (zA - zC) + xC * (zA - zB));
+        c =  xA * (yB - yC) - xB * (yA - yC) + xC * (yA - yB);
+	h = xA * (yB * zC - yC * zB) - xB * (yA * zC - yC * zA) + xC * (yA * zB - yB * zA);
+
+        r = sqrt(a*a + b*b + c*c); r = r == 0 ? eps : r;
+        a /= r; b /= r; c /= r;
+	h /= r;
+
+        (triangle + i)->a = a; (triangle + i)->b = b; (triangle + i)->c = c;
+	(triangle + i)->h = h;
+    }
+}
+
+void scale_calc()
+{
+    double fx, fy, Xcentre, Ycentre, Xvp_centre, Yvp_centre;
+
+    Xrange = Xmax - Xmin; Yrange = Ymax - Ymin;
+    Xvp_range = Xvp_max - Xvp_min; Yvp_range = Yvp_max - Yvp_min;
+    fx = Xvp_range / Xrange; fy = Yvp_range / Yrange;
+    d = (fx < fy) ? fx : fy;
+    Xcentre = (Xmin + Xmax) / 2; Ycentre = (Ymax + Ymin) / 2;
+    Xvp_centre = (Xvp_min + Xvp_max) / 2; Yvp_centre = (Yvp_min + Yvp_max) / 2;
+    c1 = Xvp_centre - d * Xcentre; c2 = Yvp_centre - d * Ycentre;
+}
+
+void read_and_draw(double rho, double theta, double phi, double scale)
+{
+
+    update();
+//check();
+    coeff(rho, theta, phi, scale);
+
+    calc_vertex();
+//check();
+    if (onetime) {
+        scale_calc();
+	extra_init();
+    }
+    onetime = 0;
+
+//check();
+     //coeff(rho, theta, phi, scale);
+    /* Иниц. z-буфер */
+   // 
+//check();
     /* Читаем вершины, преобразуем и записываем в массив vertex */
-    read_vertex();
+//    calc_vertex();
+//check();
+    /* Вычисляем значения для масштабирования (один раз)*/
 
-    /* Вычисляем значения для масштабирования */
-    scale_calc(Xvp_min, Xvp_max, Yvp_min, Yvp_max);
-
-    /* Читаем из файла грани обьекта и разбиваем на полигоны*/
-    read_faces();
-
-    /* Добавляем ближайшие треугольники в экранный список*/
-    //tr_add();
-
-    drawtr();//TEMP
-
-    /* Проверяем видимость прямых и рисуем их */
-    //line_and_pix();
+//check();
+    calc_triangles();
+//check();
+    /* Считаем нормали к вершинам*/
+    calc_ver2();
+//check();
+//    struct color Cl = {174, 32, 14};
+//    rectangle(Xmaxe, Ymine, Xmaxe + 50, Ymine + 50, Cl);
+    drawtr();
+    DrawButtons();
 
 }
 
@@ -635,143 +837,24 @@ int reint(int *pi)
     return fscanf(fpin, "%d", pi);
 }
 
-/*void add_linesegment(int P, int Q)
+
+void RememberVertex(int A, int B, int C, int Ntr)
 {
-    int iaux, *ptr, ii, n;
-    if (P > Q) {
-        iaux = P;
-        P = Q;
-        Q = iaux;
-    }
+   int *ptr, n;
 
-    ptr = vertex[P].connect; n = *ptr;
-    for (ii = 1; ii <= n; ++ii)
-        if (*(ptr + ii) == Q) return;
-    ++n;
-    vertex[P].connect = ptr = (int *)realloc(ptr, (n + 1) * isize);
-    if (ptr == NULL) error("Memory alloc error \n");
-    *(ptr + n) = Q; *ptr = n;
+   ptr = (vertex + A)->connect; n = *ptr; ++n;
+//   ptr = (int *)realloc(ptr, (n + 1) * sizeof(int));
+   *(ptr + n) = Ntr; *ptr = n;
+//check();
+   ptr = (vertex + B)->connect; n = *ptr; ++n;
+  // ptr = (int *)realloc(ptr, (n + 1) * sizeof(int));
+   *(ptr + n) = Ntr; *ptr = n;
+//check();
+   ptr = (vertex + C)->connect; n = *ptr; ++n;
+  // ptr = (int *)realloc(ptr, (n + 1) * sizeof(int));
+   *(ptr + n) = Ntr; *ptr = n;
+//check();
 }
-
-int counter_clock(int i0, int i1, int i2, double *pdist, int code)
-{
-    /*
-        code = 0 : compute orientation
-        code = 1 : compute a,b,c,h, store the first triangle
-        code > 1 : check if next triangle is coplanar; store it
-    /
-
-    int A = abs(poly[i0]), B = abs(poly[i1]), C = abs(poly[i2]);
-    double   xA, yA, zA, xB, yB, zB, xC, yC, zC, r, xdist, ydist, zdist,
-             XA, YA, XB, YB, XC, YC, h0,
-             DA, DB, DC, D, DAB, DAC, DBC, aux, dist, xR, yR;
-    static double a,b,c,h;
-
-    pvertex = vertex + A;
-    xA = pvertex->x; yA = pvertex->y; zA = pvertex->z;
-    pvertex = vertex + B;
-    xB = pvertex->x; yB = pvertex->y; zB = pvertex->z;
-    pvertex = vertex + C;
-    xC = pvertex->x; yC = pvertex->y; zC = pvertex->z;
-
-    h0 = xA * (yB * zC - yC * zB) -
-         xB * (yA * zC - yC * zA) +
-         xC * (yA * zB - yB * zA);
-
-    if (code == 0)
-	if (h0 > eps) {
-	    xdist = xC - xA; ydist = yC - yA; zdist = zC - zA;
-	    *pdist = xdist * xdist + ydist * ydist + zdist * zdist;
-	    return 1;
-	} else return 0;
-
-    if (code == 1) {
-	a = yA * (zB - zC) - yB * (zA - zC) + yC * (zA - zB);
-        b = -(xA * (zB - zC) - xB * (zA - zC) + xC * (zA - zB));
-        c =  xA * (yB - yC) - xB * (yA - yC) + xC * (yA - yB);
-       	r = sqrt(a*a + b*b + c*c); r = r == 0 ? eps : r;
-	a /= r; b /= r; c /= r; h = h0 / r;
-    } else if (fabs(a * xC + b * yC + c * zC - h) > 0.001 * fabs(h))
-	error("Incorrectly specified polygon \n");
-
-    if (ntr = NTRIANGLE) error("Too many triangles");
-    ptriangle = triangle + ntr;
-    ptriangle->A = A; ptriangle->B = B; ptriangle->C = C;
-    ptriangle->a = a; ptriangle->b = b; ptriangle->c = c;
-    ptriangle->h = h;
-
-    XA = xA / zA; YA = yA / zA;
-    XB = xB / zB; YB = yB / zB;
-    XC = xC / zC; YC = yC / zC;
-
-    DA = XB * YC - XC * YB;
-    DB = XC * YA - XA * YC;
-    DC = XA * YB - XB * YA;
-    D = DA + DB + DC;
-    DAB = DC - M * (XA - XB); DAC = DB - M * (XC - XA); DBC = DA - M * (XB - XC);
-
-    topcode[0] = (D * DAB > 0); topcode[1] = (D * DAC  > 0); topcode[2] = (D * DBC > 0);
-    Xleft[0] = XA; Yleft[0] = YA; Xright[0] = XB; Yright[0] = YB;
-    Xleft[1] = XA; Yleft[1] = YA; Xright[1] = XC; Yright[1] = YC;
-    Xleft[2] = XB; Yleft[2] = YB; Xright[2] = XC; Yright[2] = YC;
-
-    for (i = 0; i < 3; ++i)
-	if (Xleft[i] > Xright[i] || (Xleft[i] == Xright[i] && Yleft[i] > Yright[i])) {
-	    aux = Xleft[i]; Xleft[i] = Xright[i]; Xright[i] = aux;
-	    aux = Yleft[i]; Yleft[i] = Yright[i]; Yright[i] = aux;
-	}
-    ipixmin = xwhole(min3(XA, XB, XC));
-    ipixmax = xwhole(max3(XA, XB, XC));
-
-    for (ipix = ipixmin; ipix <= ipixmax; ++ipix) {
-	lower[ipix] = up[ipix] = 10000;
-	upper[ipix] = low[ipix] = -10000;
-    }
-
-    for (i = 0; i < 3; ++i) {
-	ipixleft = xwhole(Xleft[i]); ipixright = xwhole(Xright[i]);
-	denom = Xright[i] - Xleft[i];
-	if (ipixleft != ipixright) slope = (Yright[i] - Yleft[i]) / denom;
-	j_old = ywhole(Yleft[i]);
-	for (ipix = ipixleft; ipix <= ipixright; ++ipix) {
-	    if (ipix = ipixright)
-                jl = xwhole(Yright[i]);
-            else jl = xwhole(Yleft[i] + (xreal(ipix + 1) - Xleft[i]) * slope);
-            if (topcode[i]) {
-                upper[ipix] = max3(j_old, jl, upper[ipix]);
-                up[ipix] = min3(j_old, jl, up[ipix]);
-            } else {
-                lower[ipix] = max3(j_old, jl, lower[ipix]);
-                low[ipix] = min3(j_old, jl, low[ipix]);
-            }
-            j_old = jl;
-	}
-    }
-    for (ipix = ipixmin; ipix <= ipixmax; ++ipix)
-        for (jpix = lower[ipix]; jpix <= upper[ipix]; ++jpix) {
-            pointer = &(Screen[ipix][jpix]);
-            if (jpix > low[ipix] && jpix < up[ipix]) {
-                xR = Xmin + (ipix + 0.5) * deltaX;
-                yR = Ymin + (jpix + 0.5) * deltaY;
-                denom = a * xR + b * yR + c * d;
-                dist = fabs(denom) > eps ? h * sqrt(xR*xR + yR*yR + 1.) / denom : BIG;
-
-                if (dist < pointer->tr_dist) {
-                    pointer->tr_cov = ntr;
-                    pointer->tr_dist = dist;
-                } else {
-                    pnode = (struct node *)malloc(sizeof(struct node));
-                    if (pnode == NULL) error("Allocation error \n");
-                    pnode->jtr = ntr; pnode->next = pointer->start;
-                    pointer->start = pnode;
-                }
-            }
-            ntr++;
-        }
-        }
-}
-
-*/
 
 void error(char *string)
 {
@@ -779,7 +862,7 @@ void error(char *string)
     printf("%s \n", string);
 }
 
-void coeff(double rho, double theta, double phi)
+void coeff(double rho, double theta, double phi, double scale)
 {
     double th, ph, costh, sinth, cosph, sinph, factor;
 
@@ -788,172 +871,39 @@ void coeff(double rho, double theta, double phi)
     costh = cos(th); sinth = sin(th);
     cosph = cos(ph); sinph = sin(ph);
 
-    v11 = -sinth; v12 = -cosph * costh; v13 = -sinph * costh;
-    v21 = costh;  v22 = -cosph * sinth; v23 = -sinph * sinth;
-                  v32 = sinph;          v33 = -cosph;
-                                        v43 = rho;
+    v11 = -sinth * scale; v12 = -cosph * costh * scale; v13 = -sinph * costh * scale;
+    v21 = costh * scale;  v22 = -cosph * sinth * scale; v23 = -sinph * sinth * scale;
+                          v32 = sinph * scale;          v33 = -cosph * scale;
+                                                        v43 = rho;
 
 }
 
 void viewing(double x, double y, double z, double *pxe, double *pye, double *pze)
 {
-    *pxe = v11 * x + v21 * y;
-    *pye = v12 * x + v22 * y + v32 * z;
-    *pze = v13 * x + v23 * y + v33 * z + v43;
-}
-
-void linesegment(double xP, double yP, double zP, double xQ, double yQ, double zQ, int k0)
-{
-    int k = k0, j, worktodo = 1, A, B, C, i, Pbeyond, Qbeyond, outside, Poutside, Qoutside, eA, eB, eC, sum;
-    double xA, yA, zA, xB, yB, zB, xC, yC, zC,
-           dA, dB, dC, MIN, MAX, labmin, labmax, lab, mu,
-           xmin, ymin, zmin, xmax, ymax, zmax,
-           C1, C2, C3, K1, K2, K3, denom1, denom2,
-           Cpos, Ppos, Qpos, aux, eps1, a, b, c, h, hP, hQ, r1, r2, r3;
-
-    //while(k < ntrset) {
-        //j = trset[k];
-     while (k < ntr) {
-	ptriangle = triangle + k;
-        a = ptriangle->a; b = ptriangle->b;  c = ptriangle->c;
-        h = ptriangle->h;
-
-       /* TEST #1*/
-
-        hP = a * xP + b * yP + c * zP;
-        hQ = a * xQ + b * yQ + c * zQ;
-	eps1 = eps + eps * h;
-        if (hP - h <= eps1 && hQ - h <= eps1) {
-            ++k;          /* PQ is not behind ABC*/
-            continue;
-        }
-
-        /* TEST #2*/
-
-        K1 = yP * zQ - yQ * zP; K2 = zP * xQ - zQ * xP; K3 = xP * yQ - xQ * yP;
-        A = ptriangle->A;  B = ptriangle->B; C = ptriangle->C;
-	pvertex = vertex + A;
-        xA = pvertex->x; yA = pvertex->y; zA = pvertex->z;
-	pvertex = vertex + B;
-        xB = pvertex->x; yB = pvertex->y; zB = pvertex->z;
-	pvertex = vertex + C;
-        xC = pvertex->x; yC = pvertex->y; zC = pvertex->z;
-
-        dA = K1 * xA + K2 * yA + K3 * zA;
-        dB = K1 * xB + K2 * yB + K3 * zB;
-        dC = K1 * xC + K2 * yC + K3 * zC;
-
-        eA = dA > eps ? 1 : dA < meps ? -1 : 0;
-        eB = dB > eps ? 1 : dB < meps ? -1 : 0;
-        eC = dC > eps ? 1 : dC < meps ? -1 : 0;
-
-        sum = eA + eB + eC;
-        if (abs(sum) >= 2) {
-            ++k;
-            continue;
-        }
-
-	/* TEST #3*/
-
-        Poutside = Qoutside = 0; labmin = 1.; labmax = 0.;
-        for (i = 0; i < 3; ++i) {
-            C1 = yA * zB - yB * zA; C2 = zA * xB - zB * xA; C3 = xA * yB - xB * yA;
-            Cpos = C1 * xC + C2 * yC + C3 * zC;
-            Ppos = C1 * xP + C2 * yP + C3 * zP;
-            Qpos = C1 * xQ + C2 * yQ + C3 * zQ;
-
-            denom1 = Qpos - Ppos;
-            if (Cpos > eps) {
-                Pbeyond = Ppos < meps; Qbeyond = Qpos < meps;
-                outside = Pbeyond && Qpos <= eps || Qbeyond && Ppos <= eps;
-            } else if (Cpos < meps) {
-                       Pbeyond = Ppos > eps; Qbeyond = Qpos > eps;
-                       outside = Pbeyond && Qpos >= meps || Qbeyond && Ppos >= meps;
-                   } else outside = 1;
-
-            if (outside)
-                break;
-            lab = fabs(denom1) <= eps ? 1.e7 : -Ppos / denom1;
-                //lab указывает на точку пересечения PQ с EAB
-
-            Poutside |= Pbeyond; Qoutside |= Qbeyond;
-            denom2 = dB - dA;
-            mu = fabs(denom2) <= eps ? 1.e7 : -dA / denom2;
-                //mu указывает на точку пересечения AB с EPQ
-            if (mu >= meps && mu <= oneplus && lab >= meps && lab <= oneplus) {
-                if (lab < labmin)
-                    labmin = lab;
-                if (lab > labmax)
-                    labmax = lab;
-            }
-
-            aux = xA; xA = xB; xB = xC; xC = aux;
-            aux = yA; yA = yB; yB = yC; yC = aux;
-            aux = zA; zA = zB; zB = zC; zC = aux;
-            aux = dA; dA = dB; dB = dC; dC = aux;
-        }
-
-        if (outside) {
-            k++;
-            continue;
-        }
-
-        /* TEST #4*/
-
-        if(!(Poutside || Qoutside)) {
-            worktodo = 0;
-            break;
-        } //PQ невидим
-
-
-        /* TEST #5*/
-
-        r1 = xQ - xP; r2 = yQ - yP; r3 = zQ - zP;
-
-        xmin = xP + labmin * r1; ymin = yP + labmin * r2; zmin = zP + labmin * r3;
-        if (a * xmin + b * ymin + c * zmin - h < -eps1) {
-            ++k;
-            continue;
-        }
-
-        xmax = xP + labmax * r2; ymax = yP + labmax * r2; zmax = zP + labmax * r3;
-        if (a * xmax + b * ymax + c * zmax - h < -eps1) {
-            ++k;
-            continue;
-        }
-
-        /* TEST #6*/
-
-       /* if (Poutside || hP < h - eps1)
-            linesegment(xP, yP, zP, xmin, ymin, zmin, k + 1);
-        if (Qoutside || hQ < h - eps1)
-            linesegment(xQ, yQ, zQ, xmax, ymax, zmax, k + 1);*/
-        worktodo = 0;
-        break;
-    }
-
-    if (worktodo) {
-        moveto((int)(d * xP / zP + c1), (int)(d * yP / zP + c2));
-        lineto((int)(d * xQ / zQ + c1), (int)(d * yQ / zQ + c2));
-    }
-}
-
-void init_viewport(double *pXMIN, double *pXMAX, double *pYMIN, double *pYMAX)
-{
-    double XMIN, XMAX, YMIN, YMAX;
-    double len = 5;
-    printf("Give viewport boundaries XMIN, XMAX, YMIN, YMAX\n");
-    scanf("%lf %lf %lf %lf", pXMIN, pXMAX, pYMIN, pYMAX);
-
-    XInitThreads();
-    srand(time(NULL));
+    *pxe = (v11 * x + v21 * y);
+    *pye = (v12 * x + v22 * y + v32 * z);
+    *pze = (v13 * x + v23 * y + v33 * z + v43);
 
 }
 
-void opengraph()
+
+void init_viewport()
 {
-    int gd = DETECT, gm;
-    initgraph(&gd, &gm, NULL);
-    setcolor(RED);
-//    setfillstyle(1, WHITE);
+    //printf("Give viewport boundaries XMIN, XMAX, YMIN, YMAX\n");
+    //scanf("%lf %lf %lf %lf", &Xvp_min, &Xvp_max, &Yvp_min, &Yvp_max);
+
+    //XInitThreads();
+    //srand(time(NULL));
+}
+
+void FinalizeMe()
+{
+    int i;
+
+    free(zbuffer);
+    free(triangle);
+    for (i = 1; i <= nvr; ++i)
+        free(vertex[i].connect);
+    free(vertex);
+    free(fvertex);
 }
