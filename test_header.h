@@ -5,9 +5,7 @@
 #define min2(x,y) ((x) < (y) ? (x) : (y))
 #define max3(x,y,z) ((x) > (y) ? max2(x,z) : max2(y,z))
 #define min3(x,y,z) ((x) < (y) ? min2(x,z) : min2(y,z))
-#define xwhole(x) ((int)(((x) - Xmin) / deltaX))
-#define ywhole(y) ((int)(((y) - Ymin) / deltaY))
-#define xreal(i) (Xmin + ((i)) * deltaX)
+#define sqr(x) ((x)*(x))
 
 #define M -1000000.0
 #define NVERTEX 30000
@@ -63,8 +61,8 @@ int reflo(double *px);
 int reint(int *pi);
 void skipbl();
 void error(char *string);
-void coeff(double rho, double theta, double phi, double scale);
-void viewing(double x, double y, double z, double *pxe, double *pye, double *pze);
+void coeff(double rho, double theta, double phi);
+void viewing(double x, double xO, double y, double yO, double z, double zO, double *pxe, double *pye, double *pze);
 void init_viewport();
 void opengraph();
 void check();
@@ -78,5 +76,12 @@ void drawpix(int x, int y, struct color C);
 void clearscreen();
 void update_render();
 void DrawRect(int x1, int y1, int x2, int y2, struct color C, int width);
+void put_pixel32(int x, int y, Uint32 pixel);
+Uint32 get_pixel32(SDL_Surface *surface, int x, int y);
+SDL_Surface *load_image(char *str);
+void applySurface(int x, int y, int w, int h, SDL_Surface *source);
+void LoadTexture(SDL_Surface *image, int x, int y);
+
+
 
 SDL_Event GetEvent();

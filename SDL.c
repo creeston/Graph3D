@@ -15,7 +15,7 @@
 //SDL_Window *window;
 //SDL_Renderer *render;
 SDL_Surface *screen;
-
+SDL_Surface *pic;
 void clearscreen()
 {
     //SDL_SetRenderDrawColor(render, 0,0,0,255);
@@ -40,14 +40,14 @@ void init(int width, int height, int depth)
 //    SDL_RenderPresent(render);
 
     screen = SDL_SetVideoMode(width, height, depth, SDL_SWSURFACE | SDL_ANYFORMAT);
+    pic = load_image("grass2.bmp");
 }
 
 void drawpix(int x, int y, struct color C)
 {
-    //SDL_SetRenderDrawColor(render, 12, 37, 23, 255);
-    //SDL_RenderDrawPoint(render,x,y);
     Uint32 dye;
     dye = SDL_MapRGB(screen->format, C.r, C.g, C.b);
+    //put_pixel32(x, y, dye);
     putpix(x, y, dye);
 }
 
@@ -99,6 +99,51 @@ void putpix(int x, int y, Uint32 pixel)
             break;
     }
 
+}
+void LoadTexture(SDL_Surface *image, int x, int y)
+{
+    //SDL_Surface *image = load_image(filename);
+    Uint32 pixel = get_pixel32(pic, x ,y);
+    put_pixel32(x, y, pixel);
+    //SDL_FreeSurface(image);
+}
+
+SDL_Surface *load_image(char *str)
+{
+    SDL_Surface *loadedImage = NULL;
+    SDL_Surface *optimizedImage = NULL;
+
+    loadedImage = SDL_LoadBMP(str);
+    if (loadedImage != NULL) {
+        optimizedImage = SDL_DisplayFormat(loadedImage);
+        SDL_FreeSurface(loadedImage);
+    }
+
+    return optimizedImage;
+}
+
+void applySurface(int x, int y, int w, int h, SDL_Surface *source)
+{
+    SDL_Rect offset;
+    offset.x = x;
+    offset.y = y;
+    offset.h = h;
+    offset.w = w;
+
+    SDL_BlitSurface(source, NULL, screen, &offset);
+}
+
+
+Uint32 get_pixel32(SDL_Surface *surface, int x, int y)
+{
+    Uint32 *pixels = (Uint32 *)surface->pixels;
+    return pixels[y * surface->w + x];
+}
+
+void put_pixel32(int x, int y, Uint32 pixel)
+{
+    Uint32 *pixels = (Uint32 *)screen->pixels;
+    pixels[y * screen->w + x] = pixel;
 }
 
 void line(int x0, int y0, int x1, int y1, struct color Cl)
